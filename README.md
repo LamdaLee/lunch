@@ -7,7 +7,9 @@ AX·SF·AX2기·DM 및 교수·강사·운영진을 위한 점심 예약 웹앱�
 - 공개 주소: https://matzip-lamda7.vercel.app
 - Vercel 프로젝트: `lamda7/matzip`
 - 데이터베이스: Neon `lunchpass-db`, `free_v3` 무료 플랜, 싱가포르 지역
+- API 함수도 싱가포르(`sin1`)에 배치되어 있습니다. 조회 요청은 예약 변경용 잠금을 기다리지 않습니다.
 - Production의 `DATABASE_URL`은 Neon 통합으로 연결되어 있습니다.
+- Vercel 빌드에서 실제 PostgreSQL 연결·스키마·상태 API를 검증하며 실패하면 배포 빌드가 실패합니다. 공개 주소의 상태 API 및 미인증 접근 차단도 확인했습니다.
 - 최초 관리자 설정 키는 이 클라우드의 `.local/production-setup-key.txt`에 별도로 보관되어 있으며 Git 및 배포 파일에 포함하지 않습니다. 공개 페이지의 최초 관리자 설정에서 키와 본인이 사용할 ID·비밀번호를 입력합니다.
 - 앱의 로그인은 학생과 식당을 위한 것이므로 Production 주소는 Vercel 계정 없이 접속하도록 설정했습니다. Preview와 고유 배포 URL은 Vercel 인증으로 보호합니다.
 - 현재 배포는 CLI로 수행했습니다. GitHub `LamdaLee/test` 연결은 기존대로 유지하며, 현재 Production Branch는 `main`입니다. 이번 소스는 `codex/lunchpass` 브랜치에 있으므로 변경을 반영하려면 CLI로 다시 배포하거나 Vercel에서 Production Branch를 변경해야 합니다.
