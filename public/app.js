@@ -30,6 +30,19 @@ const foodCategories = [
   "꼬마김밥",
 ];
 function foodVisual(restaurant) {
+  const specialty =
+    restaurant.category === "한식" &&
+    (restaurant.name === "조선명가" ||
+      restaurant.naver_url === "https://naver.me/xUwPzf7e")
+      ? { image: "yukgaejang-kalguksu.png", label: "육개장칼국수 · 계란찜" }
+      : restaurant.category === "비빔밥" &&
+          (restaurant.name === "교반" ||
+            restaurant.naver_url === "https://naver.me/GEXhLegY")
+        ? { image: "yukhoe-bibimbap.png", label: "육회비빔밥" }
+        : null;
+  if (specialty)
+    return `<img class="dish-photo" src="/${specialty.image}" alt="${specialty.label} 음식 종류 대표 이미지" decoding="async"><span class="food-caption">${specialty.label} · 대표 이미지</span>`;
+
   if (restaurant.category === "꼬마김밥")
     return `<img class="kkoma-photo" src="/kkoma-gimbap.png" alt="꼬마김밥 음식 종류 대표 이미지" decoding="async"><span class="food-caption">꼬마김밥 · 대표 이미지</span>`;
   const index = foodCategories.indexOf(restaurant.category);

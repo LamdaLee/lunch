@@ -62,6 +62,8 @@ export function createApp({
           "/restaurant": ["index.html", "text/html"],
           "/app.js": ["app.js", "text/javascript"],
           "/style.css": ["style.css", "text/css"],
+          "/yukgaejang-kalguksu.png": ["yukgaejang-kalguksu.png", "image/png"],
+          "/yukhoe-bibimbap.png": ["yukhoe-bibimbap.png", "image/png"],
           "/food-categories.png": ["food-categories.png", "image/png"],
           "/kkoma-gimbap.png": ["kkoma-gimbap.png", "image/png"],
           "/font.woff2": ["font.woff2", "font/woff2"],

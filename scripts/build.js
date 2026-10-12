@@ -7,6 +7,8 @@ for (const path of [
   "public/font.woff2",
   "public/food-categories.png",
   "public/kkoma-gimbap.png",
+  "public/yukgaejang-kalguksu.png",
+  "public/yukhoe-bibimbap.png",
   "api/index.js",
 ])
   await access(path);
