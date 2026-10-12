@@ -211,10 +211,14 @@ export function createApp({
             const time = now().getTime();
             if (
               typeof body.password !== "string" ||
-              body.password.length < 8 ||
-              body.password.length > 128
+              body.password.length < 4 ||
+              body.password.length > 128 ||
+              (body.password.length < 8 && !/^\d{4}$/.test(body.password))
             )
-              fail(400, "비밀번호는 8~128자여야 합니다.");
+              fail(
+                400,
+                "초기 비밀번호는 숫자 4자리, 개인 비밀번호는 8~128자입니다.",
+              );
             const loginId = loginIdOf(body.loginId);
             const key = digest(loginId);
             const limit = await db
@@ -225,7 +229,11 @@ export function createApp({
             const found = await db
               .prepare("SELECT * FROM users WHERE login_id=? AND active=1")
               .get(loginId);
-            if (!found || !passwordMatches(body.password, found.password)) {
+            if (
+              !found ||
+              (body.password.length < 8 && !found.must_change) ||
+              !passwordMatches(body.password, found.password)
+            ) {
               const count =
                 limit && Number(limit.expires) > time ? limit.attempts + 1 : 1;
               const expires =

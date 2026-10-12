@@ -837,3 +837,62 @@ test("오늘 게시판 제목은 한국 시간 자정 기준으로만 포함하�
   const board = (await app.request("/dashboard", { cookie })).data.todayPosts;
   assert.equal(board[0].title, "오늘 함께 먹어요");
 });
+
+test("숫자 4자리 초기 비밀번호는 첫 변경 전만 허용하고 개인 비밀번호는 8자리 이상", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const { passwordHash } = await import("../lib/store.js");
+  await app.db
+    .prepare("UPDATE users SET password=?,must_change=1 WHERE login_id=?")
+    .run(passwordHash("0642"), "ax001");
+  const login = await app.request("/login", {
+    method: "POST",
+    body: { loginId: "ax001", password: "0642" },
+  });
+  assert.equal(login.status, 200);
+  assert.equal(
+    (await app.request("/dashboard", { cookie: login.cookie })).status,
+    403,
+  );
+  assert.equal(
+    (
+      await app.request("/password", {
+        method: "POST",
+        cookie: login.cookie,
+        body: { current: "0642", password: "1234" },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await app.request("/password", {
+        method: "POST",
+        cookie: login.cookie,
+        body: { current: "0642", password: "changed-personal-password-72" },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await app.request("/login", {
+        method: "POST",
+        body: { loginId: "ax001", password: "0642" },
+      })
+    ).status,
+    401,
+  );
+  await app.db
+    .prepare("UPDATE users SET password=?,must_change=0 WHERE login_id=?")
+    .run(passwordHash("1234"), "sf001");
+  assert.equal(
+    (
+      await app.request("/login", {
+        method: "POST",
+        body: { loginId: "sf001", password: "1234" },
+      })
+    ).status,
+    401,
+  );
+});

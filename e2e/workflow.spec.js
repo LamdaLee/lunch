@@ -258,3 +258,32 @@ test("내 식사 기록과 메뉴의 비밀번호 변경 창", async ({ page }) 
     page.getByRole("heading", { name: "오늘은 어디서 먹을까요?" }),
   ).toBeVisible();
 });
+
+test("앞에 0이 있는 4자리 초기 비밀번호로 로그인 후 개인 비밀번호 변경", async ({
+  page,
+}) => {
+  const { passwordHash } = await import("../lib/store.js");
+  await app.db
+    .prepare("UPDATE users SET password=?,must_change=1 WHERE login_id=?")
+    .run(passwordHash("0642"), "ax001");
+  await page.goto(app.base);
+  await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("ax001");
+  await page.getByLabel("비밀번호", { exact: true }).fill("0642");
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "AX학생 님, 반가워요!" }),
+  ).toBeVisible();
+  await page.getByLabel("초기 비밀번호", { exact: true }).fill("0642");
+  await page
+    .getByLabel("새 비밀번호", { exact: true })
+    .fill("new-personal-password-99");
+  await page
+    .getByLabel("새 비밀번호 확인", { exact: true })
+    .fill("new-personal-password-99");
+  await page
+    .getByRole("button", { name: "비밀번호 변경하고 시작하기" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "오늘은 어디서 먹을까요?" }),
+  ).toBeVisible();
+});
