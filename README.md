@@ -2,6 +2,16 @@
 
 AX·SF·AX2기·DM 및 교수·강사·운영진을 위한 점심 예약 웹앱입니다. 식당별 방문 예정 인원을 배분하고, 식당은 전용 링크에서 인원과 예약 정원을 관리합니다. 종이 식권은 그대로 사용하며 결제·식사 금액 입력·정산 기능은 포함하지 않습니다.
 
+## 현재 Vercel 배포
+
+- 공개 주소: https://lunchpass-three.vercel.app
+- Vercel 프로젝트: `lamda7/lunchpass`
+- 데이터베이스: Neon `lunchpass-db`, `free_v3` 무료 플랜, 싱가포르 지역
+- Production의 `DATABASE_URL`은 Neon 통합으로 연결되어 있습니다.
+- 최초 관리자 설정 키는 이 클라우드의 `.local/production-setup-key.txt`에 별도로 보관되어 있으며 Git 및 배포 파일에 포함하지 않습니다. 공개 페이지의 최초 관리자 설정에서 키와 본인이 사용할 ID·비밀번호를 입력합니다.
+- 앱의 로그인은 학생과 식당을 위한 것이므로 Production 주소는 Vercel 계정 없이 접속하도록 설정했습니다. Preview와 고유 배포 URL은 Vercel 인증으로 보호합니다.
+- 현재 배포는 CLI로 수행했습니다. 이후 소스 변경을 반영하려면 연결된 프로젝트에 다시 배포해야 합니다. GitHub 자동 배포 연결은 별도 설정입니다.
+
 ## 운영 규칙
 
 - 시간대는 항상 **한국 시간(Asia/Seoul)** 기준입니다.
