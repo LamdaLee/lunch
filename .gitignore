@@ -1,1 +1,9 @@
 .DS_Store
+node_modules/
+.local/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+test-results/
+playwright-report/

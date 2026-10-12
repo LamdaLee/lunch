@@ -1,0 +1,22 @@
+{
+  "name": "lunchpass",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node setup.js",
+    "build": "node scripts/build.js",
+    "test": "node --test test/*.test.js",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
+  }
+}
