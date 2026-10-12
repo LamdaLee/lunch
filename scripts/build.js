@@ -14,6 +14,7 @@ console.log("Lunchpass static assets and serverless entry are ready.");
 if (process.env.DATABASE_URL) {
   const { server, db } = createApp();
   try {
+    if (!db.postgres) throw new Error('INVALID_DATABASE_URL');
     await db.ready;
     await new Promise((resolve, reject) => {
       server.once("error", reject);
