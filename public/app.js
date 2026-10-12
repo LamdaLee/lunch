@@ -125,7 +125,7 @@ function renderToday() {
   const cards = visible
     .map((r, i) => {
       const selected = reservation?.restaurant_id === r.id;
-      return `<article class="restaurant-card ${selected ? "selected" : ""}"><div class="card-visual tone${i % 4}"><span class="food" aria-hidden="true">${foodIcons[(r.id - 1) % foodIcons.length]}</span><span class="number" aria-hidden="true">${String(r.id).padStart(2, "0")}</span><span class="pill ${selected ? "red" : "gray"}">${selected ? "✓ 내 선택" : `${r.count}명 예정`}</span></div><div class="card-body"><h3>${esc(r.name)}</h3><p class="desc">${esc(r.description || "함께 갈 사람 수를 보고 오늘의 식당을 골라요.")}</p>${r.menu ? `<div class="menu">추천 메뉴 · ${esc(r.menu)}</div>` : ""}<div class="capacity"><span>오늘 갈 사람 <strong>${r.count}명</strong></span><span>12:50–14:00</span></div><p class="footnote">${r.totals.map((t) => `${esc(trackName(t.track))} ${t.count}명`).join(" · ") || "아직 선택한 사람이 없어요."}</p><button class="btn full ${selected || clock.phase !== "open" ? "secondary" : ""}" data-action="reserve" data-id="${r.id}" ${selected || clock.phase !== "open" ? "disabled" : ""}>${selected ? "✓ 오늘 내 선택" : clock.phase !== "open" ? (clock.phase === "before" ? "09:00 선택 시작" : "오늘 선택 마감") : reservation ? "이 식당으로 변경" : "나도 여기 갈래요"}</button></div></article>`;
+      return `<article class="restaurant-card ${selected ? "selected" : ""}"><div class="card-visual tone${i % 4}"><span class="food" aria-hidden="true">${foodIcons[(r.id - 1) % foodIcons.length]}</span><span class="number" aria-hidden="true">${String(r.id).padStart(2, "0")}</span><span class="pill ${selected ? "red" : "gray"}">${selected ? "✓ 내 선택" : `${r.count}명 예정`}</span></div><div class="card-body"><h3>${esc(r.name)}</h3><p class="desc">${esc(r.description || "함께 갈 사람 수를 보고 오늘의 식당을 골라요.")}</p>${r.menu ? `<div class="menu">추천 메뉴 · ${esc(r.menu)}</div>` : ""}${r.naver_url ? `<a class="btn secondary full small restaurant-naver" href="${esc(r.naver_url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(r.name)} 네이버에서 보기 (새 창)">네이버에서 보기 ↗</a>` : ""}<div class="capacity"><span>오늘 갈 사람 <strong>${r.count}명</strong></span><span>12:50–14:00</span></div><p class="footnote">${r.totals.map((t) => `${esc(trackName(t.track))} ${t.count}명`).join(" · ") || "아직 선택한 사람이 없어요."}</p><button class="btn full ${selected || clock.phase !== "open" ? "secondary" : ""}" data-action="reserve" data-id="${r.id}" ${selected || clock.phase !== "open" ? "disabled" : ""}>${selected ? "✓ 오늘 내 선택" : clock.phase !== "open" ? (clock.phase === "before" ? "09:00 선택 시작" : "오늘 선택 마감") : reservation ? "이 식당으로 변경" : "나도 여기 갈래요"}</button></div></article>`;
     })
     .join("");
   shell(
@@ -208,9 +208,10 @@ function editRestaurant(id) {
     description: "",
     menu: "",
     listed: 1,
+    naver_url: "",
   };
   modal(
-    `<h2>${id ? "식당 설정" : "새 식당 추가"}</h2><p>식당 안내를 수정하거나 이용할 수 없는 식당을 숨길 수 있어요.</p><form id="restaurant-form"><label class="field">식당 이름<input name="name" value="${esc(r.name)}" required maxlength="60"></label><label class="field">식당 소개<input name="description" value="${esc(r.description)}" maxlength="300" placeholder="예: 공간이 아담해요. 여유롭게 방문해주세요."></label><label class="field">추천 메뉴<input name="menu" value="${esc(r.menu)}" maxlength="200" placeholder="예: 제육덮밥 · 김치찌개"></label><label class="check"><input type="checkbox" name="listed" ${r.listed ? "checked" : ""}>학생 화면에 표시</label><p class="form-error" id="restaurant-error" role="alert"></p><div class="modal-actions"><button type="button" class="btn secondary" data-action="close-modal">닫기</button><button class="btn" type="submit">저장하기</button></div></form>`,
+    `<h2>${id ? "식당 설정" : "새 식당 추가"}</h2><p>식당 안내를 수정하거나 이용할 수 없는 식당을 숨길 수 있어요.</p><form id="restaurant-form"><label class="field">식당 이름<input name="name" value="${esc(r.name)}" required maxlength="60"></label><label class="field">식당 소개<input name="description" value="${esc(r.description)}" maxlength="300" placeholder="예: 공간이 아담해요. 여유롭게 방문해주세요."></label><label class="field">추천 메뉴<input name="menu" value="${esc(r.menu)}" maxlength="200" placeholder="예: 제육덮밥 · 김치찌개"></label><label class="field">네이버 링크<input name="naverUrl" type="url" value="${esc(r.naver_url)}" maxlength="500" placeholder="https://naver.me/..."></label><label class="check"><input type="checkbox" name="listed" ${r.listed ? "checked" : ""}>학생 화면에 표시</label><p class="form-error" id="restaurant-error" role="alert"></p><div class="modal-actions"><button type="button" class="btn secondary" data-action="close-modal">닫기</button><button class="btn" type="submit">저장하기</button></div></form>`,
   );
   document.querySelector("#restaurant-form").onsubmit = async (event) => {
     event.preventDefault();
@@ -223,6 +224,7 @@ function editRestaurant(id) {
         name: form.get("name"),
         description: form.get("description"),
         menu: form.get("menu"),
+        naverUrl: form.get("naverUrl"),
         listed: form.has("listed"),
       });
       dialog.close();

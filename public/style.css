@@ -1217,3 +1217,8 @@ dialog > p {
     gap: 10px 18px;
   }
 }
+
+.restaurant-naver {
+  margin-bottom: 14px;
+  text-decoration: none;
+}

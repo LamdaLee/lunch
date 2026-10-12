@@ -79,6 +79,9 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
   await page
     .getByLabel("식당 소개")
     .fill("방문 예정 인원을 보고 서로 조율해요");
+  await page
+    .getByLabel("네이버 링크", { exact: true })
+    .fill("https://naver.me/xIeXiYYf");
   await page.getByRole("button", { name: "저장하기" }).click();
   await expect(page.locator("dialog")).not.toBeVisible();
   await expect(
@@ -120,6 +123,12 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
   await expect(
     member.getByRole("button", { name: "운영 관리", exact: true }),
   ).toBeVisible();
+  await expect(
+    member.locator(".restaurant-card").first().getByRole("link"),
+  ).toHaveAttribute("href", "https://naver.me/xIeXiYYf");
+  await expect(
+    member.locator(".restaurant-card").first().getByRole("link"),
+  ).toHaveAttribute("target", "_blank");
   await member
     .locator(".restaurant-card")
     .first()

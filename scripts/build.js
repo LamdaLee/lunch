@@ -14,7 +14,7 @@ console.log("Lunchpass static assets and serverless entry are ready.");
 if (process.env.DATABASE_URL) {
   const { server, db } = createApp();
   try {
-    if (!db.postgres) throw new Error('INVALID_DATABASE_URL');
+    if (!db.postgres) throw new Error("INVALID_DATABASE_URL");
     await db.ready;
     await new Promise((resolve, reject) => {
       server.once("error", reject);
@@ -30,8 +30,11 @@ if (process.env.DATABASE_URL) {
     if (data.setupNeeded && !data.setupAvailable)
       throw new Error("INITIAL_SETUP_KEY_MISSING");
     const { n } = await db.prepare("SELECT COUNT(*) n FROM restaurants").get();
+    const { n: linked } = await db
+      .prepare("SELECT COUNT(*) n FROM restaurants WHERE naver_url<>''")
+      .get();
     console.log(
-      `Hosting database connection, schema and status API verified (${n} restaurants).`,
+      `Hosting database connection, schema and status API verified (${n} restaurants, ${linked} Naver links).`,
     );
   } catch (error) {
     console.error(

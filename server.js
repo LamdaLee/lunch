@@ -324,7 +324,7 @@ export function createApp({
           if (path === "/api/dashboard" && req.method === "GET") {
             const restaurants = await db
               .prepare(
-                `SELECT r.id,r.name,r.description,r.menu,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
+                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
               )
               .all(clock.day);
             const reservation =
@@ -472,6 +472,40 @@ export function createApp({
                 body.menu.length > 200
               )
                 fail(400, "식당 안내 또는 메뉴가 너무 깁니다.");
+              let naverUrl = null;
+              if (body.naverUrl !== undefined) {
+                if (
+                  typeof body.naverUrl !== "string" ||
+                  body.naverUrl.length > 500
+                )
+                  fail(400, "네이버 링크를 확인해주세요.");
+                naverUrl = body.naverUrl.trim();
+                if (naverUrl) {
+                  let link;
+                  try {
+                    link = new URL(naverUrl);
+                  } catch {
+                    fail(400, "올바른 네이버 링크를 입력해주세요.");
+                  }
+                  if (
+                    link.protocol !== "https:" ||
+                    ![
+                      "naver.me",
+                      "map.naver.com",
+                      "m.place.naver.com",
+                      "place.naver.com",
+                    ].includes(link.hostname) ||
+                    link.username ||
+                    link.password ||
+                    link.port
+                  )
+                    fail(
+                      400,
+                      "네이버 지도 또는 플레이스의 HTTPS 링크를 입력해주세요.",
+                    );
+                  naverUrl = link.href;
+                }
+              }
               if (typeof body.listed !== "boolean")
                 fail(400, "식당 표시 여부를 선택해주세요.");
               if (body.id) {
@@ -481,25 +515,27 @@ export function createApp({
                 if (!restaurant) fail(404, "식당을 찾을 수 없습니다.");
                 await db
                   .prepare(
-                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=? WHERE id=?",
+                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url) WHERE id=?",
                   )
                   .run(
                     name,
                     body.description.trim(),
                     body.menu.trim(),
                     body.listed ? 1 : 0,
+                    naverUrl,
                     body.id,
                   );
               } else
                 await db
                   .prepare(
-                    "INSERT INTO restaurants(name,description,menu,listed,access_token) VALUES (?,?,?,?,?)",
+                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,access_token) VALUES (?,?,?,?,?,?)",
                   )
                   .run(
                     name,
                     body.description.trim(),
                     body.menu.trim(),
                     body.listed ? 1 : 0,
+                    naverUrl || "",
                     token(),
                   );
               return send(200, { ok: true });

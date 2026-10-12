@@ -754,3 +754,43 @@ test("이전 기록은 50개씩 중복 없이 조회", async (t) => {
     55,
   );
 });
+
+test("네이버 링크 등록은 운영진만 가능하며 잘못된 주소를 저장하지 않음", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const admin = await app.login("테스트관리자"),
+    member = await app.login("AX학생");
+  const save = (cookie, naverUrl) =>
+    app.request("/admin/restaurants", {
+      method: "POST",
+      cookie,
+      body: {
+        id: 1,
+        name: "한끼식당",
+        description: "",
+        menu: "",
+        listed: true,
+        naverUrl,
+      },
+    });
+  assert.equal((await save(member, "https://naver.me/xIeXiYYf")).status, 403);
+  for (const url of [
+    "javascript:alert(1)",
+    "https://evil.example/",
+    "https://naver.me.evil.example/",
+    "https://user:password@naver.me/x",
+  ])
+    assert.equal((await save(admin, url)).status, 400);
+  assert.equal((await save(admin, "https://naver.me/xIeXiYYf")).status, 200);
+  assert.equal(
+    (await app.request("/dashboard", { cookie: member })).data.restaurants[0]
+      .naver_url,
+    "https://naver.me/xIeXiYYf",
+  );
+  assert.equal((await save(admin, "")).status, 200);
+  assert.equal(
+    (await app.request("/dashboard", { cookie: member })).data.restaurants[0]
+      .naver_url,
+    "",
+  );
+});
