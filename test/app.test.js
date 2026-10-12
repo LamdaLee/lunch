@@ -49,25 +49,79 @@ test("한국 시간으로 09:00 개시, 12:00 정각 예약·취소 마감", asy
     1,
   );
 });
-test('최초 관리자는 설정 키로 한 번만 생성 가능', async t => {
-  const oldKey=process.env.SETUP_KEY;
-  process.env.SETUP_KEY='test-only-bootstrap-key-62481739';
-  t.after(()=>{if(oldKey===undefined)delete process.env.SETUP_KEY;else process.env.SETUP_KEY=oldKey;});
-  const app=await fixture({seed:false});t.after(()=>app.close());
-  const body={key:process.env.SETUP_KEY,name:'운영관리자',loginId:'admin',password:testPassword};
-  assert.equal((await app.request('/setup',{method:'POST',body:{...body,key:'wrong'}})).status,403);
-  assert.equal((await app.request('/setup',{method:'POST',body})).status,201);
-  assert.equal((await app.request('/setup',{method:'POST',body})).status,409);
-  const cookie=(await app.request('/login',{method:'POST',body:{loginId:'admin',password:testPassword}})).cookie;
-  assert.equal((await app.request('/admin/overview',{cookie})).status,200);
-  assert.equal((await app.request('/status')).data.setupNeeded,false);
+test("최초 관리자는 설정 키로 한 번만 생성 가능", async (t) => {
+  const oldKey = process.env.SETUP_KEY;
+  process.env.SETUP_KEY = "test-only-bootstrap-key-62481739";
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.SETUP_KEY;
+    else process.env.SETUP_KEY = oldKey;
+  });
+  const app = await fixture({ seed: false });
+  t.after(() => app.close());
+  const body = {
+    key: process.env.SETUP_KEY,
+    name: "운영관리자",
+    loginId: "admin",
+    password: testPassword,
+  };
+  assert.equal(
+    (
+      await app.request("/setup", {
+        method: "POST",
+        body: { ...body, key: "wrong" },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await app.request("/setup", { method: "POST", body })).status,
+    201,
+  );
+  assert.equal(
+    (await app.request("/setup", { method: "POST", body })).status,
+    409,
+  );
+  const cookie = (
+    await app.request("/login", {
+      method: "POST",
+      body: { loginId: "admin", password: testPassword },
+    })
+  ).cookie;
+  assert.equal((await app.request("/admin/overview", { cookie })).status, 200);
+  assert.equal((await app.request("/status")).data.setupNeeded, false);
 });
-test('로그인 실패 제한이 DB에 남아 비밀번호 대입을 제한', async t => {
-  const app=await fixture();t.after(()=>app.close());
-  for(let i=0;i<15;i++) assert.equal((await app.request('/login',{method:'POST',body:{loginId:'ax001',password:'wrong-test-password'}})).status,401);
-  assert.equal((await app.request('/login',{method:'POST',body:{loginId:'ax001',password:testPassword}})).status,429);
-  app.setTime('2026-10-12T10:11:00+09:00');
-  assert.equal((await app.request('/login',{method:'POST',body:{loginId:'ax001',password:testPassword}})).status,200);
+test("로그인 실패 제한이 DB에 남아 비밀번호 대입을 제한", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  for (let i = 0; i < 15; i++)
+    assert.equal(
+      (
+        await app.request("/login", {
+          method: "POST",
+          body: { loginId: "ax001", password: "wrong-test-password" },
+        })
+      ).status,
+      401,
+    );
+  assert.equal(
+    (
+      await app.request("/login", {
+        method: "POST",
+        body: { loginId: "ax001", password: testPassword },
+      })
+    ).status,
+    429,
+  );
+  app.setTime("2026-10-12T10:11:00+09:00");
+  assert.equal(
+    (
+      await app.request("/login", {
+        method: "POST",
+        body: { loginId: "ax001", password: testPassword },
+      })
+    ).status,
+    200,
+  );
 });
 test("시간대는 UTC 호스트에서도 Asia/Seoul 기준", () => {
   assert.deepEqual(koreaClock(new Date("2026-10-11T15:10:00Z")), {

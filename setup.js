@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import { openStore, createAdmin } from "./lib/store.js";
 const db = openStore();
 await db.ready;
@@ -7,40 +8,36 @@ if (await db.prepare("SELECT id FROM users WHERE role='admin'").get()) {
   await db.close();
 } else {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let passwordReader = rl;
   try {
     const name =
       (await rl.question("관리자 로그인 이름 (기본: 운영관리자): ")).trim() ||
       "운영관리자";
     const loginId =
       (await rl.question("관리자 로그인 ID (기본: admin): ")).trim() || "admin";
-    // Hide terminal echo while reading the password; never save a plaintext password.
-    const readPassword = async (prompt) => {
-      if (!process.stdin.isTTY) return rl.question(prompt);
-      process.stdout.write(prompt);
-      rl.pause();
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      return new Promise((resolve) => {
-        let value = "";
-        const onData = (chunk) => {
-          for (const char of chunk.toString()) {
-            if (char === "\u0003") {
-              process.exit(130);
-            }
-            if (char === "\r" || char === "\n") {
-              process.stdin.off("data", onData);
-              process.stdin.setRawMode(false);
-              process.stdout.write("\n");
-              rl.resume();
-              resolve(value);
-              return;
-            }
-            if (char === "\u007f" || char === "\b") value = value.slice(0, -1);
-            else if (char >= " ") value += char;
-          }
-        };
-        process.stdin.on("data", onData);
+    // Use a separate silent terminal reader so neither readline nor the TTY echoes passwords.
+    if (process.stdin.isTTY) {
+      rl.close();
+      const silentOutput = new Writable({
+        write(_chunk, _encoding, done) {
+          done();
+        },
       });
+      passwordReader = createInterface({
+        input: process.stdin,
+        output: silentOutput,
+        terminal: true,
+      });
+      passwordReader.on("SIGINT", () => {
+        passwordReader.close();
+        process.exit(130);
+      });
+    }
+    const readPassword = async (prompt) => {
+      process.stdout.write(prompt);
+      const value = await passwordReader.question("");
+      process.stdout.write("\n");
+      return value;
     };
     const password = await readPassword("비밀번호 (8자 이상, 입력 숨김): ");
     const confirm = await readPassword("비밀번호 확인: ");
@@ -53,6 +50,7 @@ if (await db.prepare("SELECT id FROM users WHERE role='admin'").get()) {
     console.error(error.message);
     process.exitCode = 1;
   } finally {
+    passwordReader.close();
     rl.close();
     await db.close();
   }
