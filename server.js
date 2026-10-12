@@ -346,7 +346,21 @@ export function createApp({
               restaurant.totals = totals
                 .filter((row) => row.restaurant_id === restaurant.id)
                 .map(({ track, count }) => ({ track, count }));
+            const start = new Date(`${clock.day}T00:00:00+09:00`);
+            const end = new Date(start.getTime() + 86400000);
+            const todayPosts = (
+              await db
+                .prepare(
+                  "SELECT id,title,body,pinned FROM posts WHERE created_at>=? AND created_at<? ORDER BY pinned DESC,id DESC LIMIT 100",
+                )
+                .all(start.toISOString(), end.toISOString())
+            ).map(({ id, title, body, pinned }) => ({
+              id,
+              title: title || body.split(/\r?\n/)[0].slice(0, 80),
+              pinned,
+            }));
             return send(200, {
+              todayPosts,
               restaurants,
               reservation,
               choice: reservation,
@@ -394,12 +408,16 @@ export function createApp({
             return send(200, {
               posts: await db
                 .prepare(
-                  "SELECT p.id,p.user_id,p.body,p.pinned,p.created_at,u.name,u.track,u.role FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.pinned DESC,p.id DESC LIMIT 100",
+                  "SELECT p.id,p.user_id,p.title,p.body,p.pinned,p.created_at,u.name,u.track,u.role FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.pinned DESC,p.id DESC LIMIT 100",
                 )
                 .all(),
             });
           if (path === "/api/posts" && req.method === "POST") {
             const bodyText = cleanText(body.body, 1000, "게시글");
+            const title =
+              body.title === undefined
+                ? bodyText.split(/\r?\n/)[0].slice(0, 80)
+                : cleanText(body.title, 80, "제목");
             const recent = await db
               .prepare(
                 "SELECT created_at FROM posts WHERE user_id=? ORDER BY id DESC LIMIT 1",
@@ -412,10 +430,11 @@ export function createApp({
               fail(429, "게시글은 10초 간격으로 작성할 수 있습니다.");
             await db
               .prepare(
-                "INSERT INTO posts(user_id,body,pinned,created_at) VALUES (?,?,?,?)",
+                "INSERT INTO posts(user_id,title,body,pinned,created_at) VALUES (?,?,?,?,?)",
               )
               .run(
                 user.id,
+                title,
                 bodyText,
                 user.role === "admin" && body.pinned ? 1 : 0,
                 now().toISOString(),
@@ -423,6 +442,15 @@ export function createApp({
             return send(201, { ok: true });
           }
           const postMatch = path.match(/^\/api\/posts\/(\d+)$/);
+          if (postMatch && req.method === "GET") {
+            const post = await db
+              .prepare(
+                "SELECT p.id,p.title,p.body,p.created_at,u.name FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?",
+              )
+              .get(Number(postMatch[1]));
+            if (!post) fail(404, "게시글을 찾을 수 없습니다.");
+            return send(200, { post });
+          }
           if (postMatch && req.method === "DELETE") {
             const post = await db
               .prepare("SELECT user_id FROM posts WHERE id=?")

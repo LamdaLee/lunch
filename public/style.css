@@ -1272,3 +1272,53 @@ dialog > p {
   height: 100%;
   object-fit: cover;
 }
+
+.today-board .section-head {
+  margin-bottom: 10px;
+}
+.today-board .section-head h3 {
+  margin: 0;
+}
+.today-post-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.today-post-list li + li {
+  border-top: 1px solid var(--line);
+}
+.today-post-title {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 0;
+  background: none;
+  border: 0;
+  text-align: left;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.today-post-title:hover {
+  color: var(--red);
+}
+.today-post-title span:last-child {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.post-title {
+  font-size: 18px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.post-detail {
+  margin: 20px 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}

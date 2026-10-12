@@ -148,6 +148,10 @@ function dateLabel(day) {
     timeZone: "Asia/Seoul",
   }).format(new Date(`${day}T12:00:00+09:00`));
 }
+function todayBoard() {
+  const posts = state.dashboard.todayPosts || [];
+  return `<section class="side-card today-board"><div class="section-head"><h3>오늘의 게시판</h3><span class="pill gray">${posts.length}</span></div>${posts.length ? `<ul class="today-post-list">${posts.map((p) => `<li><button class="today-post-title" data-action="open-post" data-id="${p.id}" title="${esc(p.title)}">${p.pinned ? '<span aria-label="운영 공지">📌</span>' : ""}<span>${esc(p.title)}</span></button></li>`).join("")}</ul>` : '<p class="footnote">오늘 올라온 글이 아직 없어요.</p>'}<button class="btn secondary full small" data-tab="board">게시판 전체 보기 →</button></section>`;
+}
 function renderToday() {
   const { restaurants, reservation, clock } = state.dashboard;
   const visible =
@@ -162,7 +166,7 @@ function renderToday() {
     })
     .join("");
   shell(
-    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:00</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div><div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">오늘의 선택을 공유했어요. 종이 식권을 꼭 가져가세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section><section class="side-card"><h3>함께 점심을 조율해요</h3><p class="muted">사람이 많이 모인 식당은 다른 곳도 살펴보세요. 함께 갈 친구를 찾거나 식당 소식을 나눌 수 있어요.</p><button class="btn secondary full small" data-tab="board">게시판에서 이야기하기 →</button></section><section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시에 선택 마감</b><small>변경·취소도 12시 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
+    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:00</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div><div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">오늘의 선택을 공유했어요. 종이 식권을 꼭 가져가세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시에 선택 마감</b><small>변경·취소도 12시 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
   );
 }
 async function loadToday() {
@@ -190,7 +194,7 @@ async function loadBoard() {
   const { posts } = await api("/posts");
   if (state.tab !== "board") return;
   shell(
-    `<section class="hero"><div><span class="eyebrow">OUR LITTLE LUNCH BOARD</span><h1>한 끼 사이, 한마디.</h1><p class="intro">오늘의 메뉴부터 작은 공지까지, 함께 나누는 공간이에요.</p></div><span class="hero-art" aria-hidden="true"><span class="plate">💬</span></span></section><form id="post-form" class="panel post-composer"><label for="post-body"><b>오늘 나누고 싶은 이야기</b></label><textarea id="post-body" name="body" maxlength="1000" required placeholder="추천 메뉴, 식당 소식, 함께 나눌 이야기를 남겨주세요."></textarea><div class="composer-actions">${state.user.role === "admin" ? '<label class="check"><input type="checkbox" name="pinned">운영 공지로 상단 고정</label>' : '<small class="muted">모두가 읽는 공간이에요. 서로를 배려해주세요.</small>'}<button class="btn small" type="submit">게시하기 ↗</button></div></form><div class="section-head"><h2>우리의 이야기 <span class="muted">${posts.length}</span></h2><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div>${posts.length ? `<section class="board-grid">${posts.map((p) => `<article class="post ${p.pinned ? "pinned" : ""}"><div class="post-top"><b>${p.pinned ? "📌 운영 공지" : esc(trackName(p.track))}</b><span>${esc(p.name)}</span></div><div class="post-body">${esc(p.body)}</div><div class="post-bottom"><time datetime="${esc(p.created_at)}">${new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(p.created_at))}</time>${p.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-post" data-id="${p.id}">삭제</button>` : ""}</div></article>`).join("")}</section>` : '<div class="empty"><div class="empty-icon">📝</div><h3>첫 번째 이야기를 남겨주세요.</h3><p>맛있었던 메뉴나 함께 나누고 싶은 소식도 좋아요.</p></div>'}`,
+    `<section class="hero"><div><span class="eyebrow">OUR LITTLE LUNCH BOARD</span><h1>한 끼 사이, 한마디.</h1><p class="intro">오늘의 메뉴부터 작은 공지까지, 함께 나누는 공간이에요.</p></div><span class="hero-art" aria-hidden="true"><span class="plate">💬</span></span></section><form id="post-form" class="panel post-composer"><label class="field">게시글 제목<input name="title" required maxlength="80" placeholder="예: 오늘 칼국수 같이 먹을 분?"></label><label for="post-body"><b>오늘 나누고 싶은 이야기</b></label><textarea id="post-body" name="body" maxlength="1000" required placeholder="추천 메뉴, 식당 소식, 함께 나눌 이야기를 남겨주세요."></textarea><div class="composer-actions">${state.user.role === "admin" ? '<label class="check"><input type="checkbox" name="pinned">운영 공지로 상단 고정</label>' : '<small class="muted">모두가 읽는 공간이에요. 서로를 배려해주세요.</small>'}<button class="btn small" type="submit">게시하기 ↗</button></div></form><div class="section-head"><h2>우리의 이야기 <span class="muted">${posts.length}</span></h2><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div>${posts.length ? `<section class="board-grid">${posts.map((p) => `<article class="post ${p.pinned ? "pinned" : ""}"><div class="post-top"><b>${p.pinned ? "📌 운영 공지" : esc(trackName(p.track))}</b><span>${esc(p.name)}</span></div><h3 class="post-title">${esc(p.title || p.body.split(/\r?\n/)[0].slice(0, 80))}</h3><div class="post-body">${esc(p.body)}</div><div class="post-bottom"><time datetime="${esc(p.created_at)}">${new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(p.created_at))}</time>${p.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-post" data-id="${p.id}">삭제</button>` : ""}</div></article>`).join("")}</section>` : '<div class="empty"><div class="empty-icon">📝</div><h3>첫 번째 이야기를 남겨주세요.</h3><p>맛있었던 메뉴나 함께 나누고 싶은 소식도 좋아요.</p></div>'}`,
   );
 }
 async function loadAdmin(day) {
@@ -447,6 +451,17 @@ document.addEventListener("click", async (event) => {
         );
         break;
       }
+      case "open-post": {
+        const { post } = await api(`/posts/${id}`);
+        modal(
+          `<h2>${esc(post.title || post.body.split(/\r?\n/)[0].slice(0, 80))}</h2><p class="footnote">${esc(post.name)} · ${new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" }).format(new Date(post.created_at))}</p><div class="post-body post-detail">${esc(post.body)}</div><div class="modal-actions"><button class="btn secondary" data-action="close-modal">닫기</button><button class="btn" data-action="post-board">게시판 전체 보기</button></div>`,
+        );
+        break;
+      }
+      case "post-board":
+        dialog.close();
+        await selectTab("board");
+        break;
       case "delete-post":
         confirmAction(
           "게시글을 삭제할까요?",
@@ -544,6 +559,7 @@ document.addEventListener("submit", async (event) => {
       toast("비밀번호를 변경했어요.");
     } else if (form.id === "post-form") {
       await api("/posts", "POST", {
+        title: data.get("title"),
         body: data.get("body"),
         pinned: data.has("pinned"),
       });

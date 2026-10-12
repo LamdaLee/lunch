@@ -794,3 +794,46 @@ test("네이버 링크 등록은 운영진만 가능하며 잘못된 주소를 �
     "",
   );
 });
+
+test("오늘 게시판 제목은 한국 시간 자정 기준으로만 포함하고 글 내용은 별도 조회", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const insert = app.db.prepare(
+    "INSERT INTO posts(user_id,title,body,pinned,created_at) VALUES (1,?,?,?,?)",
+  );
+  await insert.run("지난 공지", "어제 본문", 1, "2026-10-11T14:59:59.000Z");
+  await insert.run(
+    "오늘 첫 글",
+    "본문은 목록에 제외",
+    0,
+    "2026-10-11T15:00:00.000Z",
+  );
+  await insert.run(
+    "",
+    "기존 글 첫 줄\n나머지 본문",
+    0,
+    "2026-10-12T00:00:00.000Z",
+  );
+  await insert.run("내일 글", "다음 날 본문", 0, "2026-10-12T15:00:00.000Z");
+  const cookie = await app.login("AX학생");
+  const posts = (await app.request("/dashboard", { cookie })).data.todayPosts;
+  assert.deepEqual(
+    posts.map((p) => p.title),
+    ["기존 글 첫 줄", "오늘 첫 글"],
+  );
+  assert.equal(posts[0].body, undefined);
+  assert.equal((await app.request("/posts/" + posts[0].id)).status, 401);
+  assert.equal(
+    (await app.request("/posts/" + posts[0].id, { cookie })).data.post.body,
+    "기존 글 첫 줄\n나머지 본문",
+  );
+  assert.equal((await app.request("/posts/999999", { cookie })).status, 404);
+  const created = await app.request("/posts", {
+    method: "POST",
+    cookie,
+    body: { title: "오늘 함께 먹어요", body: "칼국수 3명 가요" },
+  });
+  assert.equal(created.status, 201);
+  const board = (await app.request("/dashboard", { cookie })).data.todayPosts;
+  assert.equal(board[0].title, "오늘 함께 먹어요");
+});

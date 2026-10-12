@@ -76,12 +76,22 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
 test("게시판은 HTML을 실행하지 않고 텍스트로 표시", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "우리의 게시판" }).click();
+  await page.getByLabel("게시글 제목").fill("오늘 같이 먹어요 <b>점심</b>");
   await page
     .getByLabel("오늘 나누고 싶은 이야기")
     .fill('<img src=x onerror="window.hacked=true"> 오늘 메뉴 추천!');
   await page.getByRole("button", { name: "게시하기" }).click();
   await expect(page.locator(".post-body")).toContainText("<img src=x");
   expect(await page.evaluate(() => Boolean(window.hacked))).toBe(false);
+  await page.getByRole("button", { name: "오늘의 식당", exact: true }).click();
+  await expect(page.locator(".today-post-list")).toContainText(
+    "오늘 같이 먹어요 <b>점심</b>",
+  );
+  await expect(page.locator(".today-post-list")).not.toContainText("onerror");
+  await page.locator(".today-post-title").click();
+  await expect(page.locator("dialog .post-body")).toContainText("<img src=x");
+  expect(await page.evaluate(() => Boolean(window.hacked))).toBe(false);
+  await page.getByRole("button", { name: "닫기", exact: true }).click();
 });
 test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인원 링크는 조회만 가능", async ({
   page,
