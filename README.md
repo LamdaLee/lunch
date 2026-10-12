@@ -50,7 +50,7 @@ Vercel 기본 주소 `프로젝트명.vercel.app`을 사용할 수 있어 별도
 
 ### 1. 소스 배포
 
-이 소스를 GitHub에 올리고 Vercel의 **New Project → Import**로 가져옵니다. 코드가 있는 브랜치를 배포해야 합니다. 또는 ZIP을 풀고 해당 디렉터리에서 Vercel CLI의 `npx vercel`을 사용합니다.
+소스는 GitHub의 **`LamdaLee/test` → `codex/lunchpass` 브랜치**에 있습니다. Vercel의 **New Project → Import**로 저장소를 가져오고, 프로젝트의 **Settings → Git → Production Branch**를 `codex/lunchpass`로 설정한 뒤 해당 브랜치를 배포합니다. 기존 `main`에는 앱 코드가 없으므로 브랜치를 확인하세요. 또는 배포용 ZIP을 풀고 해당 디렉터리에서 Vercel CLI의 `npx vercel`을 사용합니다.
 
 - Framework Preset: **Other**
 - Node.js: **24.x**
