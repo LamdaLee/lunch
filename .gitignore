@@ -5,5 +5,8 @@ node_modules/
 *.sqlite-shm
 *.sqlite-wal
 .env
+.env.*
+!.env.example
+.vercel/
 test-results/
 playwright-report/

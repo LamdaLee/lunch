@@ -1,0 +1,14 @@
+.git/
+.local/
+.vercel/
+node_modules/
+test/
+e2e/
+test-results/
+playwright-report/
+.env
+.env.*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+playwright.config.js
