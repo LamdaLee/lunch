@@ -86,7 +86,9 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
       .locator("tr")
       .filter({ has: page.getByText("한끼식당", { exact: true }) }),
   ).toContainText("0명");
-  await page.getByRole("combobox", { name: "권한", exact: true }).selectOption("admin");
+  await page
+    .getByRole("combobox", { name: "권한", exact: true })
+    .selectOption("admin");
   await page.getByLabel("이름", { exact: true }).fill("신규학생");
   await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("new001");
   await page.getByLabel("초기 비밀번호", { exact: true }).fill(testPassword);
@@ -168,4 +170,53 @@ test("실제 폰트 로딩과 데스크톱 로그인 디자인", async ({ page }
     path: ".local/screenshots/dashboard-desktop.png",
     fullPage: true,
   });
+});
+
+test("내 식사 기록과 메뉴의 비밀번호 변경 창", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await app.db
+    .prepare(
+      "INSERT INTO reservations(user_id,restaurant_id,day,created_at) VALUES (2,2,?,?)",
+    )
+    .run("2026-10-11", "2026-10-11T01:00:00Z");
+  await login(page);
+  await page.getByRole("button", { name: "내 식사 기록", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "내 식사 기록", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("tbody")).toContainText("2026-10-11");
+  await expect(page.locator("tbody")).toContainText("온기국수");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "비밀번호 변경", exact: true })
+    .click();
+  await page.getByLabel("현재 비밀번호", { exact: true }).fill(testPassword);
+  await page
+    .getByLabel("새 비밀번호", { exact: true })
+    .fill("personal-password-changed-71");
+  await page
+    .getByLabel("새 비밀번호 확인", { exact: true })
+    .fill("different-password-71");
+  await page.getByRole("button", { name: "변경하기", exact: true }).click();
+  await expect(page.locator("#password-error")).toHaveText(
+    "새 비밀번호가 일치하지 않습니다.",
+  );
+  await page
+    .getByLabel("새 비밀번호 확인", { exact: true })
+    .fill("personal-password-changed-71");
+  await page.getByRole("button", { name: "변경하기", exact: true }).click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+  await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("ax001");
+  await page
+    .getByLabel("비밀번호", { exact: true })
+    .fill("personal-password-changed-71");
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "오늘은 어디서 먹을까요?" }),
+  ).toBeVisible();
 });

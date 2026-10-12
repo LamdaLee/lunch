@@ -305,6 +305,22 @@ export function createApp({
           }
           if (user.must_change)
             fail(403, "첫 로그인 후 비밀번호를 변경해주세요.");
+          if (path === "/api/history" && req.method === "GET") {
+            const before = url.searchParams.get("before");
+            if (before && !/^\d{4}-\d{2}-\d{2}$/.test(before))
+              fail(400, "날짜 형식을 확인해주세요.");
+            const rows = await db
+              .prepare(
+                `SELECT b.day,r.name restaurant FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id WHERE b.user_id=? AND b.day<=? ${before ? "AND b.day<?" : ""} ORDER BY b.day DESC LIMIT 51`,
+              )
+              .all(user.id, clock.day, ...(before ? [before] : []));
+            const records = rows.slice(0, 50);
+            return send(200, {
+              records,
+              day: clock.day,
+              nextBefore: rows.length > 50 ? records.at(-1).day : null,
+            });
+          }
           if (path === "/api/dashboard" && req.method === "GET") {
             const restaurants = await db
               .prepare(

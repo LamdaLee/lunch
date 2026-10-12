@@ -6,6 +6,7 @@ const state = {
   filter: "all",
   dashboard: null,
   admin: null,
+  history: null,
 };
 const esc = (value) =>
   String(value ?? "").replace(
@@ -96,7 +97,7 @@ function setupAdmin() {
   };
 }
 function shell(content) {
-  root.innerHTML = `${header()}<main class="shell"><nav class="nav" aria-label="메인 메뉴"><button data-tab="today" class="${state.tab === "today" ? "active" : ""}">오늘의 식당</button><button data-tab="board" class="${state.tab === "board" ? "active" : ""}">우리의 게시판</button>${state.user.role === "admin" ? `<button data-tab="admin" class="${state.tab === "admin" ? "active" : ""}">운영 관리</button>` : ""}</nav>${content}${footer()}</main>`;
+  root.innerHTML = `${header()}<main class="shell"><nav class="nav" aria-label="메인 메뉴"><button data-tab="today" class="${state.tab === "today" ? "active" : ""}">오늘의 식당</button><button data-tab="history" class="${state.tab === "history" ? "active" : ""}">내 식사 기록</button><button data-action="password">비밀번호 변경</button><button data-tab="board" class="${state.tab === "board" ? "active" : ""}">우리의 게시판</button>${state.user.role === "admin" ? `<button data-tab="admin" class="${state.tab === "admin" ? "active" : ""}">운영 관리</button>` : ""}</nav>${content}${footer()}</main>`;
 }
 function phasePill(clock) {
   const texts = {
@@ -135,6 +136,22 @@ async function loadToday() {
   state.dashboard = await api("/dashboard");
   state.user = state.dashboard.user;
   if (state.tab === "today") renderToday();
+}
+async function loadHistory(before) {
+  const data = await api(
+    `/history${before ? `?before=${encodeURIComponent(before)}` : ""}`,
+  );
+  if (state.tab !== "history") return;
+  state.history = {
+    ...data,
+    records: before
+      ? [...state.history.records, ...data.records]
+      : data.records,
+  };
+  const { records, day, nextBefore } = state.history;
+  shell(
+    `<section class="hero"><div><span class="eyebrow">MY LUNCH HISTORY</span><h1>내 식사 기록</h1><p class="intro">날짜별로 내가 선택했던 식당을 확인해요.</p></div></section><section class="panel"><div class="section-head"><h2>${esc(state.user.name)} 님의 점심 선택 내역</h2><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><p class="footnote">식사 시간은 12:50–14:00입니다. 실제 방문 여부를 확인하는 기능은 없으며, 취소한 선택은 표시되지 않습니다.</p>${records.length ? `<div class="table-wrap"><table><thead><tr><th>날짜</th><th>식당</th><th>기록</th></tr></thead><tbody>${records.map((record) => `<tr><td><time datetime="${esc(record.day)}">${esc(record.day)}<br><small class="muted">${dateLabel(record.day)}</small></time></td><td><b>${esc(record.restaurant)}</b></td><td><span class="pill ${record.day === day ? "red" : "gray"}">${record.day === day ? "오늘의 선택" : "선택 내역"}</span></td></tr>`).join("")}</tbody></table></div>${nextBefore ? '<button class="btn secondary full" data-action="more-history">이전 기록 더 보기</button>' : ""}` : '<div class="empty"><div class="empty-icon" aria-hidden="true">🍽️</div><h3>아직 식당 선택 기록이 없어요</h3><p>오늘 갈 식당을 고르면 여기에서 확인할 수 있어요.</p><button class="btn" data-tab="today">오늘의 식당 보기 →</button></div>'}</section>`,
+  );
 }
 async function loadBoard() {
   const { posts } = await api("/posts");
@@ -315,6 +332,7 @@ async function renderRestaurant() {
 async function selectTab(tab) {
   state.tab = tab;
   if (tab === "today") await loadToday();
+  else if (tab === "history") await loadHistory();
   else if (tab === "board") await loadBoard();
   else if (tab === "admin") await loadAdmin();
 }
@@ -333,6 +351,14 @@ document.addEventListener("click", async (event) => {
       case "setup":
         setupAdmin();
         break;
+      case "more-history":
+        target.disabled = true;
+        try {
+          await loadHistory(state.history.nextBefore);
+        } finally {
+          target.disabled = false;
+        }
+        break;
       case "password":
         if (state.user.must_change) renderFirstPassword();
         else changePassword();
@@ -342,6 +368,7 @@ document.addEventListener("click", async (event) => {
         state.user = null;
         state.admin = null;
         state.dashboard = null;
+        state.history = null;
         renderAuth();
         break;
       case "refresh":

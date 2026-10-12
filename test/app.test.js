@@ -688,3 +688,69 @@ test("운영진 추가·기존 이용자 권한 변경 및 세션 무효화", as
   );
   assert.equal((await update(admin, 2, "invalid")).status, 400);
 });
+
+test("내 기록은 본인 선택만 최신 날짜순으로 조회하고 변경·취소를 반영", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  assert.equal((await app.request("/history")).status, 401);
+  let ax = await app.login("AX학생"),
+    sf = await app.login("SF학생");
+  const choose = (cookie, restaurantId) =>
+    app.request("/choice", { method: "POST", cookie, body: { restaurantId } });
+  await choose(ax, 1);
+  await choose(ax, 3);
+  await choose(sf, 2);
+  app.setTime("2026-10-13T10:00:00+09:00");
+  ax = await app.login("AX학생");
+  sf = await app.login("SF학생");
+  await choose(ax, 9);
+  const history = await app.request("/history?userId=3", { cookie: ax });
+  assert.equal(history.status, 200);
+  assert.deepEqual(history.data.records, [
+    { day: "2026-10-13", restaurant: "파스토보이" },
+    { day: "2026-10-12", restaurant: "초록테이블" },
+  ]);
+  assert.equal(history.data.nextBefore, null);
+  assert.deepEqual(
+    (await app.request("/history?before=2026-10-13", { cookie: ax })).data
+      .records,
+    [{ day: "2026-10-12", restaurant: "초록테이블" }],
+  );
+  assert.equal(
+    (await app.request("/history?before=bad", { cookie: ax })).status,
+    400,
+  );
+  await app.request("/choice", { method: "DELETE", cookie: ax, body: {} });
+  assert.equal(
+    (await app.request("/history", { cookie: ax })).data.records.length,
+    1,
+  );
+  assert.deepEqual(
+    (await app.request("/history", { cookie: sf })).data.records,
+    [{ day: "2026-10-12", restaurant: "온기국수" }],
+  );
+});
+test("이전 기록은 50개씩 중복 없이 조회", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const cookie = await app.login("AX학생");
+  const insert = app.db.prepare(
+    "INSERT INTO reservations(user_id,restaurant_id,day,created_at) VALUES (2,1,?,?)",
+  );
+  for (let i = 0; i < 55; i++) {
+    const day = new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10);
+    await insert.run(day, day + "T01:00:00Z");
+  }
+  const first = (await app.request("/history", { cookie })).data;
+  assert.equal(first.records.length, 50);
+  assert.equal(first.nextBefore, first.records.at(-1).day);
+  const second = (
+    await app.request("/history?before=" + first.nextBefore, { cookie })
+  ).data;
+  assert.equal(second.records.length, 5);
+  assert.equal(second.nextBefore, null);
+  assert.equal(
+    new Set([...first.records, ...second.records].map((r) => r.day)).size,
+    55,
+  );
+});
