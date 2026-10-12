@@ -11,7 +11,7 @@ test("한국 시간으로 09:00 개시, 12:00 정각 예약·취소 마감", asy
   t.after(() => app.close());
   const cookie = await app.login("AX학생");
   const reserve = () =>
-    app.request("/reservation", {
+    app.request("/choice", {
       method: "POST",
       cookie,
       body: { restaurantId: 1 },
@@ -22,20 +22,20 @@ test("한국 시간으로 09:00 개시, 12:00 정각 예약·취소 마감", asy
   assert.equal((await reserve()).status, 200);
   app.setTime("2026-10-12T11:59:59+09:00");
   assert.equal(
-    (await app.request("/reservation", { method: "DELETE", cookie, body: {} }))
+    (await app.request("/choice", { method: "DELETE", cookie, body: {} }))
       .status,
     200,
   );
   assert.equal((await reserve()).status, 200);
   app.setTime("2026-10-12T12:00:00+09:00");
   assert.equal(
-    (await app.request("/reservation", { method: "DELETE", cookie, body: {} }))
+    (await app.request("/choice", { method: "DELETE", cookie, body: {} }))
       .status,
     409,
   );
   assert.equal(
     (
-      await app.request("/reservation", {
+      await app.request("/choice", {
         method: "POST",
         cookie,
         body: { restaurantId: 2 },
@@ -132,28 +132,28 @@ test("시간대는 UTC 호스트에서도 Asia/Seoul 기준", () => {
     timezone: "Asia/Seoul",
   });
 });
-test("동시 예약에서 식당 정원을 초과하지 않음", async (t) => {
+test("같은 식당을 동시에 선택해도 인원 제한 없이 두 명 모두 집계", async (t) => {
   const app = await fixture();
   t.after(() => app.close());
   const ax = await app.login("AX학생"),
     sf = await app.login("SF학생");
   const results = await Promise.all(
     [ax, sf].map((cookie) =>
-      app.request("/reservation", {
+      app.request("/choice", {
         method: "POST",
         cookie,
         body: { restaurantId: 2 },
       }),
     ),
   );
-  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 200]);
   assert.equal(
     (
       await app.db
         .prepare("SELECT COUNT(*) n FROM reservations WHERE restaurant_id=2")
         .get()
     ).n,
-    1,
+    2,
   );
 });
 test("식당 변경은 한 건만 유지하고 변경 실패 시 기존 예약 보존", async (t) => {
@@ -162,14 +162,15 @@ test("식당 변경은 한 건만 유지하고 변경 실패 시 기존 예약 �
   const ax = await app.login("AX학생"),
     sf = await app.login("SF학생");
   const reserve = (cookie, restaurantId) =>
-    app.request("/reservation", {
+    app.request("/choice", {
       method: "POST",
       cookie,
       body: { restaurantId },
     });
   assert.equal((await reserve(ax, 1)).status, 200);
   assert.equal((await reserve(sf, 2)).status, 200);
-  assert.equal((await reserve(ax, 2)).status, 409);
+  await app.db.prepare("UPDATE restaurants SET listed=0 WHERE id=2").run();
+  assert.equal((await reserve(ax, 2)).status, 404);
   assert.equal(
     (await app.request("/dashboard", { cookie: ax })).data.reservation
       .restaurant_id,
@@ -193,7 +194,7 @@ test("교수·강사·운영진도 학생과 동일하게 예약 가능", async 
     const cookie = await app.login(name);
     assert.equal(
       (
-        await app.request("/reservation", {
+        await app.request("/choice", {
           method: "POST",
           cookie,
           body: { restaurantId: 1 },
@@ -207,7 +208,7 @@ test("다음 날 예약과 집계는 이전 날짜와 분리됨", async (t) => {
   const app = await fixture();
   t.after(() => app.close());
   const cookie = await app.login("AX학생");
-  await app.request("/reservation", {
+  await app.request("/choice", {
     method: "POST",
     cookie,
     body: { restaurantId: 1 },
@@ -220,7 +221,7 @@ test("다음 날 예약과 집계는 이전 날짜와 분리됨", async (t) => {
   assert.equal(dashboard.restaurants[0].count, 0);
   assert.equal(
     (
-      await app.request("/reservation", {
+      await app.request("/choice", {
         method: "POST",
         cookie: nextCookie,
         body: { restaurantId: 1 },
@@ -255,68 +256,47 @@ test("운영진만 명단·식당 설정·계정 등록 기능 접근 가능", a
     200,
   );
 });
-test("식당이 직접 정원·접수를 설정하고 기존 예약보다 정원을 줄일 수 없음", async (t) => {
+test("식당 설정 없이 9곳 모두 선택 가능하고 기존 정원은 제한하지 않음", async (t) => {
   const app = await fixture();
   t.after(() => app.close());
-  const restaurantToken = (
-    await app.db
-      .prepare("SELECT access_token FROM restaurants WHERE id=1")
-      .get()
-  ).access_token;
+  const ax = await app.login("AX학생"),
+    sf = await app.login("SF학생");
+  const dashboard = (await app.request("/dashboard", { cookie: ax })).data;
+  assert.equal(dashboard.restaurants.length, 9);
+  for (const cookie of [ax, sf])
+    assert.equal(
+      (
+        await app.request("/choice", {
+          method: "POST",
+          cookie,
+          body: { restaurantId: 9 },
+        })
+      ).status,
+      200,
+    );
+  const updated = (await app.request("/dashboard", { cookie: ax })).data;
+  const restaurant = updated.restaurants.find((r) => r.id === 9);
+  assert.equal(restaurant.count, 2);
+  assert.deepEqual(restaurant.totals.map((r) => r.track).sort(), ["AX", "SF"]);
+  assert.equal(JSON.stringify(updated.restaurants).includes("AX학생"), false);
+  const admin = await app.login("테스트관리자");
   assert.equal(
     (
       await app.request("/restaurant/settings", {
         method: "POST",
-        body: { token: restaurantToken, capacity: 1, active: true },
-      })
-    ).status,
-    200,
-  );
-  const cookie = await app.login("AX학생");
-  await app.request("/reservation", {
-    method: "POST",
-    cookie,
-    body: { restaurantId: 1 },
-  });
-  assert.equal(
-    (
-      await app.request("/restaurant/settings", {
-        method: "POST",
-        body: { token: restaurantToken, capacity: 0, active: true },
-      })
-    ).status,
-    409,
-  );
-  assert.equal(
-    (
-      await app.request("/restaurant/settings", {
-        method: "POST",
-        body: { token: restaurantToken, capacity: 1, active: false },
-      })
-    ).status,
-    200,
-  );
-  const other = await app.login("SF학생");
-  assert.equal(
-    (
-      await app.request("/reservation", {
-        method: "POST",
-        cookie: other,
-        body: { restaurantId: 1 },
+        cookie: admin,
+        body: { capacity: 0, active: false },
       })
     ).status,
     404,
   );
   assert.equal(
-    (
-      await app.request("/restaurant/settings", {
-        method: "POST",
-        body: { token: "wrong", capacity: 5, active: true },
-      })
-    ).status,
-    403,
+    (await app.db.prepare("SELECT capacity FROM restaurants WHERE id=9").get())
+      .capacity,
+    0,
   );
 });
+
 test("새 반 추가와 계정 비밀번호 초기화", async (t) => {
   const app = await fixture();
   t.after(() => app.close());
@@ -367,7 +347,7 @@ test("식당 링크는 자기 식당 인원만 제공하고 재발급 시 기존
   const app = await fixture();
   t.after(() => app.close());
   const cookie = await app.login("AX학생");
-  await app.request("/reservation", {
+  await app.request("/choice", {
     method: "POST",
     cookie,
     body: { restaurantId: 1 },
@@ -423,7 +403,7 @@ test("관리자가 이름·학번·반을 등록하고 첫 비밀번호 변경�
   assert.equal((await app.request("/dashboard", { cookie })).status, 403);
   assert.equal(
     (
-      await app.request("/reservation", {
+      await app.request("/choice", {
         method: "POST",
         cookie,
         body: { restaurantId: 1 },
@@ -517,7 +497,7 @@ test("교차 출처 변경 요청 차단 및 로그아웃 세션 무효화", asy
   const cookie = await app.login("AX학생");
   assert.equal(
     (
-      await app.request("/reservation", {
+      await app.request("/choice", {
         method: "POST",
         cookie,
         body: { restaurantId: 1 },
@@ -568,28 +548,30 @@ test("서버를 재시작해도 예약·계정·세션 유지", async () => {
     const path = join(dir, "db.sqlite");
     app = await fixture({ path });
     const cookie = await app.login("AX학생");
-    await app.request("/reservation", {
+    await app.request("/choice", {
       method: "POST",
       cookie,
       body: { restaurantId: 1 },
     });
+    await app.db.exec("ALTER TABLE restaurants DROP COLUMN listed");
     await app.close();
     app = null;
     app = await fixture({ path, seed: false });
     const response = await app.request("/dashboard", { cookie });
     assert.equal(response.status, 200);
+    assert.equal(response.data.restaurants.length, 9);
     assert.equal(response.data.reservation.restaurant_id, 1);
   } finally {
     if (app) await app.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
-test("현재 예약보다 정원을 줄일 수 없고 식당은 계속 추가 가능", async (t) => {
+test("운영진이 식당을 숨겨도 기존 선택은 보존되고 새 식당 추가 가능", async (t) => {
   const app = await fixture();
   t.after(() => app.close());
   const member = await app.login("AX학생"),
     cookie = await app.login("테스트관리자");
-  await app.request("/reservation", {
+  await app.request("/choice", {
     method: "POST",
     cookie: member,
     body: { restaurantId: 1 },
@@ -602,27 +584,36 @@ test("현재 예약보다 정원을 줄일 수 없고 식당은 계속 추가 �
         body: {
           id: 1,
           name: "한끼식당",
-          description: "",
+          description: "휴무",
           menu: "",
-          capacity: 0,
-          active: true,
+          listed: false,
         },
       })
     ).status,
-    409,
+    200,
+  );
+  const data = (await app.request("/dashboard", { cookie: member })).data;
+  assert.equal(data.reservation.restaurant_id, 1);
+  assert.equal(
+    data.restaurants.some((r) => r.id === 1),
+    false,
+  );
+  assert.equal(
+    (
+      await app.request("/choice", {
+        method: "POST",
+        cookie: member,
+        body: { restaurantId: 1 },
+      })
+    ).status,
+    404,
   );
   assert.equal(
     (
       await app.request("/admin/restaurants", {
         method: "POST",
         cookie,
-        body: {
-          name: "새식당",
-          description: "",
-          menu: "",
-          capacity: 7,
-          active: true,
-        },
+        body: { name: "새식당", description: "", menu: "", listed: true },
       })
     ).status,
     200,
@@ -631,4 +622,69 @@ test("현재 예약보다 정원을 줄일 수 없고 식당은 계속 추가 �
     (await app.db.prepare("SELECT COUNT(*) n FROM restaurants").get()).n,
     10,
   );
+});
+test("운영진 추가·기존 이용자 권한 변경 및 세션 무효화", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const admin = await app.login("테스트관리자"),
+    member = await app.login("AX학생");
+  const update = (cookie, id, role) =>
+    app.request("/admin/user-role", {
+      method: "POST",
+      cookie,
+      body: { id, role },
+    });
+  assert.equal((await update(member, 2, "admin")).status, 403);
+  assert.equal((await update(admin, 1, "member")).status, 409);
+  assert.equal(
+    (
+      await app.request("/admin/users", {
+        method: "POST",
+        cookie: admin,
+        body: {
+          name: "추가운영진",
+          loginId: "admin2",
+          track: "OTHER",
+          role: "admin",
+          password: testPassword,
+        },
+      })
+    ).status,
+    201,
+  );
+  const fresh = await app.login("admin2");
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: fresh })).status,
+    403,
+  );
+  await app.request("/password", {
+    method: "POST",
+    cookie: fresh,
+    body: { current: testPassword, password: "second-admin-password-47" },
+  });
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: fresh })).status,
+    200,
+  );
+  assert.equal((await update(admin, 2, "admin")).status, 200);
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: member })).status,
+    401,
+  );
+  const promoted = await app.login("AX학생");
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: promoted })).status,
+    200,
+  );
+  assert.equal((await update(admin, 2, "member")).status, 200);
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: promoted })).status,
+    401,
+  );
+  const demoted = await app.login("AX학생");
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: demoted })).status,
+    403,
+  );
+  assert.equal((await update(admin, 2, "invalid")).status, 400);
 });

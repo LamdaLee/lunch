@@ -30,9 +30,8 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
     .filter({
       has: page.getByRole("heading", { name: "한끼식당", exact: true }),
     })
-    .getByRole("button", { name: "이 식당 예약하기" })
+    .getByRole("button", { name: "나도 여기 갈래요" })
     .click();
-  await page.getByRole("button", { name: "예약 확정", exact: true }).click();
   await expect(page.locator(".reservation-name")).toHaveText("한끼식당");
   await page
     .locator(".restaurant-card")
@@ -41,7 +40,6 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
     })
     .getByRole("button", { name: "이 식당으로 변경" })
     .click();
-  await page.getByRole("button", { name: "예약 확정", exact: true }).click();
   await expect(page.locator(".reservation-name")).toHaveText("온기국수");
   expect(
     await page.evaluate(
@@ -52,11 +50,7 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
     path: ".local/screenshots/mobile-reservation.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "예약 취소", exact: true }).click();
-  await page
-    .locator("dialog")
-    .getByRole("button", { name: "예약 취소", exact: true })
-    .click();
+  await page.getByRole("button", { name: "선택 취소", exact: true }).click();
   await expect(page.locator(".empty-reservation")).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -70,7 +64,7 @@ test("게시판은 HTML을 실행하지 않고 텍스트로 표시", async ({ pa
   await expect(page.locator(".post-body")).toContainText("<img src=x");
   expect(await page.evaluate(() => Boolean(window.hacked))).toBe(false);
 });
-test("운영진 계정 등록 → 첫 비밀번호 변경 → 예약, 식당 직접 정원 설정", async ({
+test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인원 링크는 조회만 가능", async ({
   page,
   browser,
 }) => {
@@ -82,13 +76,17 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 예약, 식당 직
     .filter({ has: page.getByText("한끼식당", { exact: true }) })
     .getByRole("button", { name: "수정", exact: true })
     .click();
-  await page.getByLabel("점심 예약 정원").fill("12");
+  await page
+    .getByLabel("식당 소개")
+    .fill("방문 예정 인원을 보고 서로 조율해요");
   await page.getByRole("button", { name: "저장하기" }).click();
+  await expect(page.locator("dialog")).not.toBeVisible();
   await expect(
     page
       .locator("tr")
       .filter({ has: page.getByText("한끼식당", { exact: true }) }),
-  ).toContainText("0 / 12명");
+  ).toContainText("0명");
+  await page.getByRole("combobox", { name: "권한", exact: true }).selectOption("admin");
   await page.getByLabel("이름", { exact: true }).fill("신규학생");
   await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("new001");
   await page.getByLabel("초기 비밀번호", { exact: true }).fill(testPassword);
@@ -117,15 +115,17 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 예약, 식당 직
   await expect(
     member.getByRole("heading", { name: "오늘은 어디서 먹을까요?" }),
   ).toBeVisible();
+  await expect(
+    member.getByRole("button", { name: "운영 관리", exact: true }),
+  ).toBeVisible();
   await member
     .locator(".restaurant-card")
     .first()
-    .getByRole("button", { name: "이 식당 예약하기" })
+    .getByRole("button", { name: "나도 여기 갈래요" })
     .click();
-  await member.getByRole("button", { name: "예약 확정" }).click();
   await page.getByRole("button", { name: "운영 관리", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "예약자 명단" }),
+    page.getByRole("heading", { name: "식당 선택 명단" }),
   ).toBeVisible();
   await page.screenshot({
     path: ".local/screenshots/admin.png",
@@ -135,7 +135,7 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 예약, 식당 직
     .locator("tr")
     .filter({ has: page.getByText("한끼식당", { exact: true }) })
     .first()
-    .getByRole("button", { name: "식당 링크" })
+    .getByRole("button", { name: "인원 보기 링크" })
     .click();
   const link = await page.locator(".code-output").textContent();
   const restaurant = await context.newPage();
@@ -145,13 +145,7 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 예약, 식당 직
     0,
   );
   await expect(restaurant).toHaveURL(/\/restaurant$/);
-  await restaurant.getByLabel("점심 최대 인원", { exact: true }).fill("15");
-  await restaurant
-    .getByRole("button", { name: "정원과 접수 상태 저장" })
-    .click();
-  await expect(
-    restaurant.getByLabel("점심 최대 인원", { exact: true }),
-  ).toHaveValue("15");
+  await expect(restaurant.locator("form")).toHaveCount(0);
   await restaurant.screenshot({
     path: ".local/screenshots/restaurant.png",
     fullPage: true,

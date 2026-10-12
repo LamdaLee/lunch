@@ -147,8 +147,8 @@ export function createApp({
               fail(
                 409,
                 current.phase === "before"
-                  ? "예약과 취소는 오전 9시부터 가능합니다."
-                  : "오늘 예약과 취소는 낮 12시에 마감되었습니다.",
+                  ? "선택과 취소는 오전 9시부터 가능합니다."
+                  : "오늘 선택과 취소는 낮 12시에 마감되었습니다.",
               );
           };
           const setSession = async (id) => {
@@ -258,7 +258,7 @@ export function createApp({
           if (path === "/api/restaurant" && req.method === "GET") {
             const restaurant = await db
               .prepare(
-                "SELECT id,name,description,menu,capacity,active FROM restaurants WHERE access_token=?",
+                "SELECT id,name,description,menu FROM restaurants WHERE access_token=?",
               )
               .get(url.searchParams.get("token") || "");
             if (!restaurant)
@@ -277,39 +277,6 @@ export function createApp({
               count: totals.reduce((sum, row) => sum + row.count, 0),
               clock,
             });
-          }
-          if (path === "/api/restaurant/settings" && req.method === "POST") {
-            const restaurant = await db
-              .prepare("SELECT id FROM restaurants WHERE access_token=?")
-              .get(typeof body.token === "string" ? body.token : "");
-            if (!restaurant) fail(403, "식당 링크가 유효하지 않습니다.");
-            if (
-              !Number.isInteger(body.capacity) ||
-              body.capacity < 0 ||
-              body.capacity > 500 ||
-              typeof body.active !== "boolean"
-            )
-              fail(400, "정원은 0~500명으로 입력해주세요.");
-            const count = (
-              await db
-                .prepare(
-                  "SELECT COUNT(*) n FROM reservations WHERE restaurant_id=? AND day=?",
-                )
-                .get(restaurant.id, clock.day)
-            ).n;
-            if (body.capacity < count)
-              fail(
-                409,
-                `오늘 이미 ${count}명이 예약했습니다. 그보다 정원을 줄일 수 없습니다. 접수를 중단하면 추가 예약을 막을 수 있어요.`,
-              );
-            await db
-              .prepare("UPDATE restaurants SET capacity=?,active=? WHERE id=?")
-              .run(
-                body.capacity,
-                body.active && body.capacity > 0 ? 1 : 0,
-                restaurant.id,
-              );
-            return send(200, { ok: true });
           }
           requireUser();
           if (path === "/api/password" && req.method === "POST") {
@@ -341,7 +308,7 @@ export function createApp({
           if (path === "/api/dashboard" && req.method === "GET") {
             const restaurants = await db
               .prepare(
-                `SELECT r.id,r.name,r.description,r.menu,r.capacity,r.active, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.active=1 GROUP BY r.id ORDER BY r.id`,
+                `SELECT r.id,r.name,r.description,r.menu,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
               )
               .all(clock.day);
             const reservation =
@@ -350,32 +317,41 @@ export function createApp({
                   "SELECT b.id,b.restaurant_id,r.name FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
-            return send(200, { restaurants, reservation, clock, user });
+            const totals = await db
+              .prepare(
+                "SELECT b.restaurant_id,u.track,COUNT(*) count FROM reservations b JOIN users u ON u.id=b.user_id WHERE b.day=? GROUP BY b.restaurant_id,u.track",
+              )
+              .all(clock.day);
+            for (const restaurant of restaurants)
+              restaurant.totals = totals
+                .filter((row) => row.restaurant_id === restaurant.id)
+                .map(({ track, count }) => ({ track, count }));
+            return send(200, {
+              restaurants,
+              reservation,
+              choice: reservation,
+              clock,
+              user,
+            });
           }
-          if (path === "/api/reservation" && req.method === "POST") {
+          if (
+            ["/api/choice", "/api/reservation"].includes(path) &&
+            req.method === "POST"
+          ) {
             requireOpen();
             if (!Number.isInteger(body.restaurantId))
               fail(400, "식당을 선택해주세요.");
 
             {
               const restaurant = await db
-                .prepare("SELECT * FROM restaurants WHERE id=? AND active=1")
+                .prepare("SELECT * FROM restaurants WHERE id=? AND listed=1")
                 .get(body.restaurantId);
-              if (!restaurant) fail(404, "현재 예약할 수 없는 식당입니다.");
+              if (!restaurant) fail(404, "현재 선택할 수 없는 식당입니다.");
               const existing = await db
                 .prepare("SELECT * FROM reservations WHERE user_id=? AND day=?")
                 .get(user.id, clock.day);
               if (existing?.restaurant_id === restaurant.id)
-                fail(409, "이미 예약한 식당입니다.");
-              const count = (
-                await db
-                  .prepare(
-                    "SELECT COUNT(*) n FROM reservations WHERE restaurant_id=? AND day=?",
-                  )
-                  .get(restaurant.id, clock.day)
-              ).n;
-              if (count >= restaurant.capacity)
-                fail(409, "예약이 마감되었습니다. 다른 식당을 선택해주세요.");
+                fail(409, "이미 선택한 식당입니다.");
               await db
                 .prepare(
                   `INSERT INTO reservations(user_id,restaurant_id,day,created_at) VALUES (?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,created_at=excluded.created_at`,
@@ -384,7 +360,10 @@ export function createApp({
             }
             return send(200, { ok: true });
           }
-          if (path === "/api/reservation" && req.method === "DELETE") {
+          if (
+            ["/api/choice", "/api/reservation"].includes(path) &&
+            req.method === "DELETE"
+          ) {
             requireOpen();
             await db
               .prepare("DELETE FROM reservations WHERE user_id=? AND day=?")
@@ -471,60 +450,40 @@ export function createApp({
             if (path === "/api/admin/restaurants" && req.method === "POST") {
               const name = cleanText(body.name, 60, "식당 이름");
               if (
-                !Number.isInteger(body.capacity) ||
-                body.capacity < 0 ||
-                body.capacity > 500
-              )
-                fail(400, "정원은 0~500명이어야 합니다.");
-              if (
                 typeof body.description !== "string" ||
                 body.description.length > 300 ||
                 typeof body.menu !== "string" ||
                 body.menu.length > 200
               )
                 fail(400, "식당 안내 또는 메뉴가 너무 깁니다.");
-              if (typeof body.active !== "boolean")
-                fail(400, "예약 가능 여부를 선택해주세요.");
+              if (typeof body.listed !== "boolean")
+                fail(400, "식당 표시 여부를 선택해주세요.");
               if (body.id) {
                 const restaurant = await db
                   .prepare("SELECT id FROM restaurants WHERE id=?")
                   .get(body.id);
                 if (!restaurant) fail(404, "식당을 찾을 수 없습니다.");
-                const current = (
-                  await db
-                    .prepare(
-                      "SELECT COUNT(*) n FROM reservations WHERE restaurant_id=? AND day=?",
-                    )
-                    .get(body.id, clock.day)
-                ).n;
-                if (body.capacity < current)
-                  fail(
-                    409,
-                    `오늘 예약 ${current}명보다 정원을 줄일 수 없습니다.`,
-                  );
                 await db
                   .prepare(
-                    "UPDATE restaurants SET name=?,description=?,menu=?,capacity=?,active=? WHERE id=?",
+                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=? WHERE id=?",
                   )
                   .run(
                     name,
                     body.description.trim(),
                     body.menu.trim(),
-                    body.capacity,
-                    body.active ? 1 : 0,
+                    body.listed ? 1 : 0,
                     body.id,
                   );
               } else
                 await db
                   .prepare(
-                    "INSERT INTO restaurants(name,description,menu,capacity,active,access_token) VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO restaurants(name,description,menu,listed,access_token) VALUES (?,?,?,?,?)",
                   )
                   .run(
                     name,
                     body.description.trim(),
                     body.menu.trim(),
-                    body.capacity,
-                    body.active ? 1 : 0,
+                    body.listed ? 1 : 0,
                     token(),
                   );
               return send(200, { ok: true });
@@ -551,6 +510,9 @@ export function createApp({
               const name = cleanText(body.name, 40, "이름"),
                 loginId = loginIdOf(body.loginId),
                 track = await trackOf(body.track);
+              const role = body.role ?? "member";
+              if (!["member", "admin"].includes(role))
+                fail(400, "권한을 선택해주세요.");
               const password = body.password || token().slice(0, 12);
               if (
                 typeof password !== "string" ||
@@ -566,10 +528,42 @@ export function createApp({
                 fail(409, "이미 등록된 학번/ID입니다.");
               await db
                 .prepare(
-                  "INSERT INTO users(name,login_id,track,role,password) VALUES (?,?,?,'member',?)",
+                  "INSERT INTO users(name,login_id,track,role,password) VALUES (?,?,?,?,?)",
                 )
-                .run(name, loginId, track, passwordHash(password));
+                .run(name, loginId, track, role, passwordHash(password));
               return send(201, { name, loginId, track, password });
+            }
+            if (path === "/api/admin/user-role" && req.method === "POST") {
+              if (
+                !Number.isInteger(body.id) ||
+                !["member", "admin"].includes(body.role)
+              )
+                fail(400, "이용자와 권한을 확인해주세요.");
+              const target = await db
+                .prepare("SELECT id,role FROM users WHERE id=?")
+                .get(body.id);
+              if (!target) fail(404, "이용자를 찾을 수 없습니다.");
+              if (target.id === user.id && body.role !== "admin")
+                fail(409, "내 운영진 권한은 변경할 수 없습니다.");
+              if (
+                target.role === "admin" &&
+                body.role === "member" &&
+                (
+                  await db
+                    .prepare(
+                      "SELECT COUNT(*) n FROM users WHERE role='admin' AND active=1",
+                    )
+                    .get()
+                ).n <= 1
+              )
+                fail(409, "최소 한 명의 운영진이 필요합니다.");
+              await db
+                .prepare("UPDATE users SET role=? WHERE id=?")
+                .run(body.role, body.id);
+              await db
+                .prepare("DELETE FROM sessions WHERE user_id=?")
+                .run(body.id);
+              return send(200, { ok: true });
             }
             if (path === "/api/admin/reset-password" && req.method === "POST") {
               const target = await db

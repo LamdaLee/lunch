@@ -31,7 +31,7 @@ test("Vercel rewrite 경로·미리 파싱된 요청 본문으로 로그인과 �
   });
   assert.equal(login.status, 200);
   const cookie = login.headers.get("set-cookie").split(";")[0];
-  const reservation = await fetch(base + "reservation", {
+  const reservation = await fetch(base + "choice", {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie },
     body: JSON.stringify({ restaurantId: 1 }),
@@ -43,7 +43,7 @@ test("Vercel rewrite 경로·미리 파싱된 요청 본문으로 로그인과 �
   assert.equal((await dashboard.json()).reservation.name, "한끼식당");
 });
 test(
-  "PostgreSQL 여러 서버 인스턴스에서 같은 마지막 자리 예약 시 한 명만 성공",
+  "PostgreSQL 여러 서버 인스턴스에서 같은 식당 선택 시 두 명 모두 집계",
   { skip: !process.env.TEST_DATABASE_URL },
   async (t) => {
     const app = await fixture();
@@ -65,25 +65,25 @@ test(
       cookie2 = await app.login("SF학생");
     const base2 = `http://127.0.0.1:${second.server.address().port}`;
     const result = await Promise.all([
-      fetch(app.base + "/api/reservation", {
+      fetch(app.base + "/api/choice", {
         method: "POST",
         headers: { "Content-Type": "application/json", Cookie: cookie1 },
         body: JSON.stringify({ restaurantId: 2 }),
       }),
-      fetch(base2 + "/api/reservation", {
+      fetch(base2 + "/api/choice", {
         method: "POST",
         headers: { "Content-Type": "application/json", Cookie: cookie2 },
         body: JSON.stringify({ restaurantId: 2 }),
       }),
     ]);
-    assert.deepEqual(result.map((r) => r.status).sort(), [200, 409]);
+    assert.deepEqual(result.map((r) => r.status).sort(), [200, 200]);
     assert.equal(
       (
         await app.db
           .prepare("SELECT COUNT(*) n FROM reservations WHERE restaurant_id=2")
           .get()
       ).n,
-      1,
+      2,
     );
   },
 );
