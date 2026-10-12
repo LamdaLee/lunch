@@ -62,6 +62,8 @@ export function createApp({
           "/restaurant": ["index.html", "text/html"],
           "/app.js": ["app.js", "text/javascript"],
           "/style.css": ["style.css", "text/css"],
+          "/food-categories.png": ["food-categories.png", "image/png"],
+          "/kkoma-gimbap.png": ["kkoma-gimbap.png", "image/png"],
           "/font.woff2": ["font.woff2", "font/woff2"],
           "/FONT-LICENSE.txt": ["FONT-LICENSE.txt", "text/plain"],
         };
@@ -324,7 +326,7 @@ export function createApp({
           if (path === "/api/dashboard" && req.method === "GET") {
             const restaurants = await db
               .prepare(
-                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
+                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.category,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
               )
               .all(clock.day);
             const reservation =
@@ -472,6 +474,23 @@ export function createApp({
                 body.menu.length > 200
               )
                 fail(400, "식당 안내 또는 메뉴가 너무 깁니다.");
+              const category = body.category ?? null;
+              if (
+                category !== null &&
+                ![
+                  "",
+                  "중식",
+                  "한식",
+                  "국밥",
+                  "돈가스",
+                  "칼국수",
+                  "분식",
+                  "파스타",
+                  "비빔밥",
+                  "꼬마김밥",
+                ].includes(category)
+              )
+                fail(400, "음식 종류를 확인해주세요.");
               let naverUrl = null;
               if (body.naverUrl !== undefined) {
                 if (
@@ -515,7 +534,7 @@ export function createApp({
                 if (!restaurant) fail(404, "식당을 찾을 수 없습니다.");
                 await db
                   .prepare(
-                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url) WHERE id=?",
+                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url),category=COALESCE(?,category) WHERE id=?",
                   )
                   .run(
                     name,
@@ -523,12 +542,13 @@ export function createApp({
                     body.menu.trim(),
                     body.listed ? 1 : 0,
                     naverUrl,
+                    category,
                     body.id,
                   );
               } else
                 await db
                   .prepare(
-                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,access_token) VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,category,access_token) VALUES (?,?,?,?,?,?,?)",
                   )
                   .run(
                     name,
@@ -536,6 +556,7 @@ export function createApp({
                     body.menu.trim(),
                     body.listed ? 1 : 0,
                     naverUrl || "",
+                    category || "",
                     token(),
                   );
               return send(200, { ok: true });

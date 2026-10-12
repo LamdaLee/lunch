@@ -1222,3 +1222,52 @@ dialog > p {
   margin-bottom: 14px;
   text-decoration: none;
 }
+
+.today-date {
+  display: block;
+  color: var(--red);
+  font-weight: 800;
+  font-size: clamp(18px, 2.2vw, 24px);
+  letter-spacing: -0.025em;
+  margin-bottom: 8px;
+}
+.lunch-label {
+  display: block;
+  font-size: 10px;
+  opacity: 0.75;
+}
+.card-visual.has-photo {
+  height: 190px;
+  padding: 0;
+}
+.food-photo {
+  position: absolute;
+  width: 400%;
+  max-width: none;
+  height: auto;
+  top: 50%;
+}
+.food-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  background: #26201bd9;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+@media (max-width: 600px) {
+  .card-visual.has-photo {
+    height: 180px;
+  }
+}
+
+.kkoma-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

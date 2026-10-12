@@ -5,6 +5,8 @@ for (const path of [
   "public/app.js",
   "public/style.css",
   "public/font.woff2",
+  "public/food-categories.png",
+  "public/kkoma-gimbap.png",
   "api/index.js",
 ])
   await access(path);

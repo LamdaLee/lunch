@@ -25,6 +25,18 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await login(page);
+  await expect(page.locator(".today-date")).toHaveText(
+    "2026년 10월 12일 월요일",
+  );
+  await expect(page.locator(".food-photo").first()).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".food-photo")
+        .first()
+        .evaluate((img) => img.complete && img.naturalWidth > 0),
+    )
+    .toBe(true);
   await page
     .locator(".restaurant-card")
     .filter({
@@ -46,6 +58,13 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+  await expect
+    .poll(() =>
+      page
+        .locator(".kkoma-photo")
+        .evaluate((img) => img.complete && img.naturalWidth > 0),
+    )
+    .toBe(true);
   await page.screenshot({
     path: ".local/screenshots/mobile-reservation.png",
     fullPage: true,
