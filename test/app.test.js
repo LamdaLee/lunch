@@ -896,3 +896,76 @@ test("숫자 4자리 초기 비밀번호는 첫 변경 전만 허용하고 개�
     401,
   );
 });
+
+test("만석 후 실제 식사 기록 수정은 오후 2시부터 본인 기록만 바꾸며 예정 집계·쿠폰 신청은 유지", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const ax = await app.login("AX학생"),
+    sf = await app.login("SF학생");
+  await app.db
+    .prepare("UPDATE mission_event SET active=1,start_day='2026-10-12'")
+    .run();
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 1 },
+  });
+  const body = { day: "2026-10-12", restaurantId: 2, reason: "sold_out" };
+  assert.equal(
+    (await app.request("/meal-record", { method: "POST", cookie: ax, body }))
+      .status,
+    409,
+  );
+  app.setTime("2026-10-12T14:00:00+09:00");
+  assert.equal(
+    (await app.request("/meal-record", { method: "POST", cookie: sf, body }))
+      .status,
+    404,
+  );
+  assert.equal(
+    (
+      await app.request("/meal-record", {
+        method: "POST",
+        cookie: ax,
+        body: { ...body, day: "2026-10-13" },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await app.request("/meal-record", { method: "POST", cookie: ax, body }))
+      .status,
+    200,
+  );
+  const history = (await app.request("/history", { cookie: ax })).data;
+  assert.equal(history.records[0].restaurant, "온기국수");
+  assert.equal(history.corrections[0].plannedRestaurant, "한끼식당");
+  const dashboard = (await app.request("/dashboard", { cookie: ax })).data;
+  assert.equal(dashboard.reservation.restaurant_id, 1);
+  assert.equal(dashboard.restaurants.find((r) => r.id === 1).count, 1);
+  assert.equal(dashboard.restaurants.find((r) => r.id === 2).count, 0);
+  assert.equal(
+    (await app.request("/missions", { cookie: ax })).data.choices[0].restaurant,
+    "온기국수",
+  );
+  assert.equal(
+    (
+      await app.request("/missions/claim", {
+        method: "POST",
+        cookie: ax,
+        body: { mission: "lunch", day: "2026-10-12", confirmedMeal: true },
+      })
+    ).status,
+    201,
+  );
+  const admin = await app.login("테스트관리자");
+  assert.match(
+    (await app.request("/admin/missions", { cookie: admin })).data.claims[0]
+      .evidence,
+    /온기국수/,
+  );
+  const roster = (await app.request("/admin/overview", { cookie: admin })).data
+    .reservations[0];
+  assert.equal(roster.restaurant, "한끼식당");
+  assert.equal(roster.actual_restaurant, "온기국수");
+});

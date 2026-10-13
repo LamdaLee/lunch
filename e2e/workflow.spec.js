@@ -466,3 +466,35 @@ test("운영진 이벤트 생성·인원 수정 → 학생 응모 → 승인·�
   await context.close();
   await otherContext.close();
 });
+
+test("만석 후 식사 기록 수정과 좌석 미확보 안내", async ({ page }) => {
+  await app.db
+    .prepare(
+      "INSERT INTO reservations(user_id,restaurant_id,day,created_at) VALUES (2,1,'2026-10-12','2026-10-12T01:00:00Z')",
+    )
+    .run();
+  app.setTime("2026-10-12T14:00:00+09:00");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await expect(page.locator(".plan-notice")).toContainText(
+    "좌석 예약이 아닌 방문 예정 공유",
+  );
+  await page.getByRole("button", { name: "내 식사 기록", exact: true }).click();
+  await page
+    .getByRole("button", { name: "실제 식당 수정", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "실제 식사한 식당", exact: true })
+    .selectOption("2");
+  await page
+    .getByRole("button", { name: "식사 기록 저장", exact: true })
+    .click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await expect(page.locator("tbody")).toContainText("온기국수");
+  await expect(page.locator("tbody")).toContainText("원래 예정: 한끼식당");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});

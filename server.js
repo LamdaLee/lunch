@@ -354,18 +354,73 @@ export function createApp({
               201,
               await claimMission(db, user, clock, body, now(), fail),
             );
+          if (path === "/api/meal-record" && req.method === "POST") {
+            if (
+              typeof body.day !== "string" ||
+              !/^\d{4}-\d{2}-\d{2}$/.test(body.day) ||
+              body.day > clock.day ||
+              !Number.isInteger(body.restaurantId) ||
+              !["sold_out", "changed"].includes(body.reason)
+            )
+              fail(400, "식사 날짜, 식당과 변경 사유를 확인해주세요.");
+            if (body.day === clock.day && clock.minute < 840)
+              fail(
+                409,
+                "오늘 실제 식사 기록은 오후 2시부터 수정할 수 있습니다.",
+              );
+            const planned = await db
+              .prepare(
+                "SELECT restaurant_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, body.day);
+            if (!planned)
+              fail(404, "본인의 식당 선택 기록이 있어야 수정할 수 있습니다.");
+            if (
+              !(await db
+                .prepare("SELECT id FROM restaurants WHERE id=?")
+                .get(body.restaurantId))
+            )
+              fail(404, "식당을 찾을 수 없습니다.");
+            await db
+              .prepare(
+                "INSERT INTO meal_records(user_id,day,restaurant_id,reason,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,reason=excluded.reason,updated_at=excluded.updated_at",
+              )
+              .run(
+                user.id,
+                body.day,
+                body.restaurantId,
+                body.reason,
+                now().toISOString(),
+              );
+            return send(200, { ok: true });
+          }
           if (path === "/api/history" && req.method === "GET") {
             const before = url.searchParams.get("before");
             if (before && !/^\d{4}-\d{2}-\d{2}$/.test(before))
               fail(400, "날짜 형식을 확인해주세요.");
             const rows = await db
               .prepare(
-                `SELECT b.day,r.name restaurant FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id WHERE b.user_id=? AND b.day<=? ${before ? "AND b.day<?" : ""} ORDER BY b.day DESC LIMIT 51`,
+                `SELECT b.day,COALESCE(a.name,r.name) restaurant,r.name planned_restaurant,m.reason FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.user_id=? AND b.day<=? ${before ? "AND b.day<?" : ""} ORDER BY b.day DESC LIMIT 51`,
               )
               .all(user.id, clock.day, ...(before ? [before] : []));
-            const records = rows.slice(0, 50);
+            const page = rows.slice(0, 50);
+            const records = page.map(({ day, restaurant }) => ({
+              day,
+              restaurant,
+            }));
             return send(200, {
               records,
+              corrections: page
+                .filter((r) => r.reason)
+                .map(({ day, planned_restaurant, reason }) => ({
+                  day,
+                  plannedRestaurant: planned_restaurant,
+                  reason,
+                })),
+              restaurants: await db
+                .prepare("SELECT id,name FROM restaurants ORDER BY id")
+                .all(),
+              minute: clock.minute,
               day: clock.day,
               nextBefore: rows.length > 50 ? records.at(-1).day : null,
             });
@@ -548,7 +603,7 @@ export function createApp({
                 .all(day);
               const reservations = await db
                 .prepare(
-                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
+                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
                 )
                 .all(day);
               const users = await db
