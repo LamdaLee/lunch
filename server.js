@@ -1,4 +1,9 @@
 import {
+  notificationSummary,
+  listNotifications,
+  readNotification,
+} from "./lib/notifications.js";
+import {
   missionSummary,
   memberMissions,
   claimMission,
@@ -325,6 +330,23 @@ export function createApp({
           }
           if (user.must_change)
             fail(403, "첫 로그인 후 비밀번호를 변경해주세요.");
+          if (path === "/api/notifications" && req.method === "GET")
+            return send(
+              200,
+              url.searchParams.get("summary") === "1"
+                ? await notificationSummary(db, user)
+                : await listNotifications(
+                    db,
+                    user,
+                    url.searchParams.get("before"),
+                    fail,
+                  ),
+            );
+          if (path === "/api/notifications/read" && req.method === "POST")
+            return send(
+              200,
+              await readNotification(db, user, body, now(), fail),
+            );
           if (path === "/api/missions" && req.method === "GET")
             return send(200, await memberMissions(db, user, clock));
           if (path === "/api/missions/claim" && req.method === "POST")

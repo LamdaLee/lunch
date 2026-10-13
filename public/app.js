@@ -8,6 +8,8 @@ const state = {
   admin: null,
   history: null,
   missions: null,
+  inbox: null,
+  notificationMeta: null,
 };
 const esc = (value) =>
   String(value ?? "").replace(
@@ -51,7 +53,7 @@ function foodVisual(restaurant) {
     return `<span class="food" aria-hidden="true">${foodIcons[(restaurant.id - 1) % foodIcons.length]}</span><span class="number" aria-hidden="true">${String(restaurant.id).padStart(2, "0")}</span>`;
   return `<img class="food-photo" src="/food-categories.png" alt="${esc(restaurant.category)} 음식 종류 대표 이미지" decoding="async" style="left:-${(index % 4) * 100}%;transform:translateY(-${index < 4 ? 25 : 75}%)"><span class="food-caption">${esc(restaurant.category)} · 대표 이미지</span>`;
 }
-let refreshTimer, toastTimer;
+let refreshTimer, toastTimer, notificationTimer;
 async function api(path, method = "GET", body) {
   const response = await fetch(`/api${path}`, {
     method,
@@ -83,18 +85,59 @@ function toast(message) {
 function brand() {
   return '<a class="brand" href="/" aria-label="런치패스 홈"><span class="brandmark">⌁</span><span>런치패스<small>LUNCH, TOGETHER</small></span></a>';
 }
+function notificationBell() {
+  const count = state.notificationMeta?.unread || 0;
+  return `<button class="btn ghost small notification-button" data-action="notifications" aria-label="알림, 읽지 않은 알림 ${count}개"><span aria-hidden="true">🔔</span><span class="notification-label">알림</span><span class="notification-count" ${count ? "" : "hidden"}>${count > 99 ? "99+" : count}</span></button>`;
+}
+function updateNotificationBell() {
+  const button = document.querySelector(".notification-button");
+  if (!button) return;
+  const count = state.notificationMeta?.unread || 0;
+  button.setAttribute("aria-label", `알림, 읽지 않은 알림 ${count}개`);
+  const badge = button.querySelector(".notification-count");
+  badge.hidden = !count;
+  badge.textContent = count > 99 ? "99+" : count;
+}
+async function refreshNotifications(announce = true) {
+  if (!state.user || state.user.must_change) return;
+  const previous = state.notificationMeta?.latestId;
+  const data = await api("/notifications?summary=1");
+  state.notificationMeta = data;
+  updateNotificationBell();
+  if (announce && previous !== undefined && data.latestId > previous)
+    toast("새 알림이 도착했어요. 상단 알림함을 확인해주세요.");
+}
+async function loadNotifications(before) {
+  const data = await api(`/notifications${before ? `?before=${before}` : ""}`);
+  if (state.tab !== "notifications") return;
+  state.notificationMeta = { unread: data.unread, latestId: data.latestId };
+  state.inbox = {
+    ...data,
+    notifications: before
+      ? [...state.inbox.notifications, ...data.notifications]
+      : data.notifications,
+  };
+  shell(
+    `<section class="hero"><div><span class="eyebrow">YOUR NOTIFICATIONS</span><h1>알림함</h1><p class="intro">응모와 보완 요청, 쿠폰 처리 소식을 확인하세요.</p></div></section><div class="section-head"><h2>읽지 않은 알림 ${data.unread}개</h2><div class="table-actions"><button class="btn secondary small" data-action="notifications-read-all" ${data.unread ? "" : "disabled"}>모두 읽음</button><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div></div><p class="footnote">사이트에 접속해 있을 때 30초마다 새 알림을 확인합니다. 접속하지 않은 동안의 알림도 여기에 보관됩니다.</p>${state.inbox.notifications.length ? `<section class="notification-list">${state.inbox.notifications.map((n) => `<article class="panel notification-card ${n.read_at ? "" : "unread"}"><div class="section-head"><h3>${!n.read_at ? '<span class="notification-dot" aria-label="읽지 않음"></span>' : ""}${esc(n.title)}</h3><time class="footnote" datetime="${esc(n.created_at)}">${new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" }).format(new Date(n.created_at))}</time></div><p class="notification-body">${esc(n.body)}</p><button class="btn secondary small" data-action="notification-open" data-id="${n.id}">${n.target_tab === "admin" ? "신청 확인하기 →" : "이벤트 확인하기 →"}</button></article>`).join("")}</section>${data.nextBefore ? '<button class="btn secondary full" data-action="notifications-more">이전 알림 더 보기</button>' : ""}` : '<div class="empty"><h2>아직 알림이 없어요</h2><p>이벤트 신청과 처리 소식이 도착하면 알려드릴게요.</p></div>'}`,
+  );
+}
+
 function header() {
-  return `<header class="topbar">${brand()}<div class="top-right">${state.user ? `<span class="pill gray">${esc(trackName(state.user.track))}</span><button class="btn ghost small profile" data-action="password" aria-label="${esc(state.user.name)} 비밀번호 변경"><span class="avatar">${esc(state.user.name[0])}</span><b>${esc(state.user.name)}</b></button><button class="btn ghost small" data-action="logout">로그아웃</button>` : '<span class="pill red">AX · SF</span>'}</div></header>`;
+  return `<header class="topbar">${brand()}<div class="top-right">${state.user ? `${!state.user.must_change ? notificationBell() : ""}<span class="pill gray">${esc(trackName(state.user.track))}</span><button class="btn ghost small profile" data-action="password" aria-label="${esc(state.user.name)} 비밀번호 변경"><span class="avatar">${esc(state.user.name[0])}</span><b>${esc(state.user.name)}</b></button><button class="btn ghost small" data-action="logout">로그아웃</button>` : '<span class="pill red">AX · SF</span>'}</div></header>`;
 }
 function footer() {
   return '<footer class="footer"><span>런치패스 · 함께하는 점심</span><span>종이 식권 지참 · 지원 한도 11,000원</span></footer>';
 }
 function renderAuth(setupNeeded = false, setupAvailable = false) {
   clearInterval(refreshTimer);
+  clearInterval(notificationTimer);
+  state.notificationMeta = null;
+  state.inbox = null;
   root.innerHTML = `${header()}<main class="auth-layout"><section class="auth-story"><div><span class="eyebrow">A LITTLE BREAK, TOGETHER</span><h1>오늘 점심,<br>조금 더 여유롭게.</h1><p>어디로 갈지 고민하는 시간은 줄이고,<br>함께 먹는 즐거움은 늘려요.</p></div><div class="auth-art" aria-hidden="true">🍱</div><div class="small-note"><span>09:00 선택 시작</span><span>12:00 마감</span><span>12:50 점심</span></div></section><section class="auth-form"><span class="eyebrow">WELCOME TO LUNCHPASS</span><h2>반가워요! 👋</h2><p>학번으로 로그인하고 오늘의 식당을 골라보세요.</p>${setupNeeded ? `<div class="notice">최초 관리자 설정이 필요합니다.${setupAvailable ? " 아래 버튼으로 관리자 계정을 만들어주세요." : " 운영진이 서버에서 초기 설정을 완료하면 이용할 수 있어요."}</div>${setupAvailable ? '<button class="btn full" data-action="setup">최초 관리자 설정</button>' : ""}` : ""}<form id="auth-form"><label class="field">학번 / 로그인 ID<input name="loginId" autocomplete="username" required maxlength="40" placeholder="학번 또는 운영진의 로그인 ID"></label><label class="field">비밀번호<input name="password" type="password" autocomplete="current-password" required minlength="4" maxlength="128" placeholder="처음에는 전달받은 초기 비밀번호"></label><p class="form-error" role="alert" id="auth-error"></p><button class="btn full" type="submit" ${setupNeeded ? "disabled" : ""}>로그인 <span aria-hidden="true">→</span></button></form><p class="footnote" style="margin-top:25px">처음 이용하나요? 운영진에게 학번과 초기 비밀번호를 받아주세요.<br>첫 로그인에서 내 비밀번호로 변경할 수 있어요.</p></section></main>`;
 }
 function renderFirstPassword() {
   clearInterval(refreshTimer);
+  clearInterval(notificationTimer);
   root.innerHTML = `${header()}<main class="restaurant-view"><section class="panel"><span class="eyebrow">YOUR ACCOUNT, YOUR PASSWORD</span><h2 style="margin-top:10px">${esc(state.user.name)} 님, 반가워요!</h2><p class="muted" style="margin:12px 0 25px">처음 로그인했거나 비밀번호가 초기화되었어요.<br>이용하기 전에 나만의 비밀번호로 바꿔주세요.</p><form id="first-password-form"><label class="field">초기 비밀번호<input name="current" type="password" required autocomplete="current-password" maxlength="128"></label><label class="field">새 비밀번호<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="8자 이상, 초기 비밀번호와 다르게"></label><label class="field">새 비밀번호 확인<input name="confirm" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label><p class="form-error" id="first-password-error" role="alert"></p><button class="btn full" type="submit">비밀번호 변경하고 시작하기 →</button></form></section></main>`;
 }
 async function afterLogin() {
@@ -104,6 +147,7 @@ async function afterLogin() {
     return;
   }
   state.tab = "today";
+  await refreshNotifications(false);
   await loadToday();
   startRefresh();
 }
@@ -224,7 +268,7 @@ async function loadMissions() {
                 event.active &&
                 data.day >= event.start_day &&
                 (!event.end_day || data.day <= event.end_day);
-              return `<section class="event-section"><div class="section-head"><div><h2>${esc(event.title)}</h2><p class="event-description">${esc(event.description)}</p><p class="footnote">${event.start_day} ~ ${event.end_day || "종료일 미정"} · 미션당 ${won(event.reward_amount)} 쿠폰</p></div><span class="pill ${open ? "green" : "gray"}">${open ? "접수 중" : "접수 기간 아님"}</span></div><div class="mission-grid">${event.missions
+              return `<section class="event-section" data-event="${event.id}"><div class="section-head"><div><h2>${esc(event.title)}</h2><p class="event-description">${esc(event.description)}</p><p class="footnote">${event.start_day} ~ ${event.end_day || "종료일 미정"} · 미션당 ${won(event.reward_amount)} 쿠폰</p></div><span class="pill ${open ? "green" : "gray"}">${open ? "접수 중" : "접수 기간 아님"}</span></div><div class="mission-grid">${event.missions
                 .map((m) => {
                   const claim = data.claims.find(
                       (c) => c.mission_id === m.missionId,
@@ -585,6 +629,7 @@ async function renderRestaurant() {
 async function selectTab(tab) {
   state.tab = tab;
   if (tab === "today") await loadToday();
+  else if (tab === "notifications") await loadNotifications();
   else if (tab === "missions") await loadMissions();
   else if (tab === "history") await loadHistory();
   else if (tab === "board") await loadBoard();
@@ -602,6 +647,34 @@ document.addEventListener("click", async (event) => {
     }
     const id = Number(target.dataset.id);
     switch (target.dataset.action) {
+      case "notifications":
+        await selectTab("notifications");
+        break;
+      case "notifications-more":
+        target.disabled = true;
+        try {
+          await loadNotifications(state.inbox.nextBefore);
+        } finally {
+          target.disabled = false;
+        }
+        break;
+      case "notifications-read-all":
+        await api("/notifications/read", "POST", { all: true });
+        await loadNotifications();
+        break;
+      case "notification-open": {
+        const link = await api("/notifications/read", "POST", { id });
+        await refreshNotifications(false);
+        await selectTab(link.targetTab);
+        const section = document.querySelector(
+          `[data-event="${link.eventId}"]`,
+        );
+        if (section) {
+          section.scrollIntoView({ behavior: "smooth", block: "center" });
+          section.classList.add("notification-focus");
+        }
+        break;
+      }
       case "setup":
         setupAdmin();
         break;
@@ -801,6 +874,7 @@ document.addEventListener("submit", async (event) => {
         confirmedMeal: data.has("confirmedMeal"),
         postId: data.get("postId") ? Number(data.get("postId")) : undefined,
       });
+      await refreshNotifications(false);
       await loadMissions();
       toast("응모를 접수했어요. 화면에서 승인 상태를 확인해주세요.");
     } catch (e) {
@@ -921,6 +995,15 @@ dialog.addEventListener("click", (event) => {
 });
 function startRefresh() {
   clearInterval(refreshTimer);
+  clearInterval(notificationTimer);
+  notificationTimer = setInterval(async () => {
+    if (document.hidden || !state.user || state.user.must_change) return;
+    try {
+      await refreshNotifications();
+    } catch (e) {
+      if (state.user) toast(`알림을 확인하지 못했어요. ${e.message}`);
+    }
+  }, 30000);
   refreshTimer = setInterval(async () => {
     if (document.hidden || dialog.open) return;
     try {

@@ -371,7 +371,46 @@ test("운영진 이벤트 생성·인원 수정 → 학생 응모 → 승인·�
     other.getByRole("button", { name: "응모하기", exact: true }),
   ).toBeDisabled();
   await expect(other.getByText("선착순 마감", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "운영 관리", exact: true }).click();
+  await page.locator(".notification-button").click();
+  await expect(page.locator(".notification-body")).toContainText("AX학생");
+  await page
+    .getByRole("button", { name: "신청 확인하기 →", exact: true })
+    .click();
+  await expect(page.locator(".notification-count")).toBeHidden();
+
+  await adminEvent
+    .getByRole("button", { name: "보완 요청", exact: true })
+    .click();
+  await page
+    .getByRole("textbox", { name: "보완 사유", exact: true })
+    .fill("참여 내용을 한 줄 더 적어주세요.");
+  await page
+    .locator("dialog")
+    .getByRole("button", { name: "보완 요청", exact: true })
+    .click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await student.locator(".notification-button").click();
+  await expect(student.locator(".notification-body")).toContainText(
+    "참여 내용을 한 줄 더 적어주세요.",
+  );
+  await student
+    .getByRole("button", { name: "이벤트 확인하기 →", exact: true })
+    .click();
+  await student
+    .getByRole("textbox", { name: /참여 내용/ })
+    .fill("이벤트 조건을 확인했습니다.");
+  await student
+    .getByRole("checkbox", { name: "위 이벤트 조건을 확인하고 응모합니다." })
+    .check();
+  await student
+    .getByRole("button", { name: "보완해서 다시 응모", exact: true })
+    .click();
+  await expect(student.locator(".mission-result")).toContainText("확인 중");
+  await page.locator(".notification-button").click();
+  await page
+    .locator(".notification-card.unread")
+    .getByRole("button", { name: "신청 확인하기 →", exact: true })
+    .click();
   await adminEvent.getByRole("button", { name: "승인", exact: true }).click();
   await page
     .locator("dialog")
