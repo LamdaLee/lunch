@@ -1,3 +1,11 @@
+import {
+  missionSummary,
+  memberMissions,
+  claimMission,
+  adminMissions,
+  reviewMission,
+  saveEvent,
+} from "./lib/missions.js";
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -317,6 +325,13 @@ export function createApp({
           }
           if (user.must_change)
             fail(403, "첫 로그인 후 비밀번호를 변경해주세요.");
+          if (path === "/api/missions" && req.method === "GET")
+            return send(200, await memberMissions(db, user, clock));
+          if (path === "/api/missions/claim" && req.method === "POST")
+            return send(
+              201,
+              await claimMission(db, user, clock, body, now(), fail),
+            );
           if (path === "/api/history" && req.method === "GET") {
             const before = url.searchParams.get("before");
             if (before && !/^\d{4}-\d{2}-\d{2}$/.test(before))
@@ -368,6 +383,12 @@ export function createApp({
               pinned,
             }));
             return send(200, {
+              missionEvent: (await missionSummary(db)).events.some(
+                (e) =>
+                  e.active &&
+                  clock.day >= e.start_day &&
+                  (!e.end_day || clock.day <= e.end_day),
+              ),
               todayPosts,
               restaurants,
               reservation,
@@ -473,6 +494,27 @@ export function createApp({
           }
           if (path.startsWith("/api/admin/")) {
             requireAdmin();
+            if (path === "/api/admin/missions" && req.method === "GET")
+              return send(200, await adminMissions(db));
+            if (path === "/api/admin/missions/review" && req.method === "POST")
+              return send(
+                200,
+                await reviewMission(db, user, body, now(), fail),
+              );
+            if (path === "/api/admin/missions/event" && req.method === "POST") {
+              if (typeof body.active !== "boolean")
+                fail(400, "접수 상태를 확인해주세요.");
+              const eventId = body.eventId ?? 1;
+              if (!Number.isInteger(eventId))
+                fail(400, "이벤트를 확인해주세요.");
+              const result = await db
+                .prepare("UPDATE mission_event SET active=? WHERE id=?")
+                .run(body.active ? 1 : 0, eventId);
+              if (!result.changes) fail(404, "이벤트를 찾을 수 없습니다.");
+              return send(200, { ok: true });
+            }
+            if (path === "/api/admin/missions/save" && req.method === "POST")
+              return send(200, await saveEvent(db, body, now(), fail));
             if (path === "/api/admin/overview" && req.method === "GET") {
               const day = url.searchParams.get("day") || clock.day;
               if (!/^\d{4}-\d{2}-\d{2}$/.test(day))

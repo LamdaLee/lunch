@@ -7,6 +7,7 @@ const state = {
   dashboard: null,
   admin: null,
   history: null,
+  missions: null,
 };
 const esc = (value) =>
   String(value ?? "").replace(
@@ -129,7 +130,7 @@ function setupAdmin() {
   };
 }
 function shell(content) {
-  root.innerHTML = `${header()}<main class="shell"><nav class="nav" aria-label="메인 메뉴"><button data-tab="today" class="${state.tab === "today" ? "active" : ""}">오늘의 식당</button><button data-tab="history" class="${state.tab === "history" ? "active" : ""}">내 식사 기록</button><button data-action="password">비밀번호 변경</button><button data-tab="board" class="${state.tab === "board" ? "active" : ""}">우리의 게시판</button>${state.user.role === "admin" ? `<button data-tab="admin" class="${state.tab === "admin" ? "active" : ""}">운영 관리</button>` : ""}</nav>${content}${footer()}</main>`;
+  root.innerHTML = `${header()}<main class="shell"><nav class="nav" aria-label="메인 메뉴"><button data-tab="today" class="${state.tab === "today" ? "active" : ""}">오늘의 식당</button><button data-tab="missions" class="${state.tab === "missions" ? "active" : ""}">간식 쿠폰 이벤트</button><button data-tab="history" class="${state.tab === "history" ? "active" : ""}">내 식사 기록</button><button data-action="password">비밀번호 변경</button><button data-tab="board" class="${state.tab === "board" ? "active" : ""}">우리의 게시판</button>${state.user.role === "admin" ? `<button data-tab="admin" class="${state.tab === "admin" ? "active" : ""}">운영 관리</button>` : ""}</nav>${content}${footer()}</main>`;
 }
 function phasePill(clock) {
   const texts = {
@@ -166,7 +167,7 @@ function renderToday() {
     })
     .join("");
   shell(
-    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:00</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div><div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">오늘의 선택을 공유했어요. 종이 식권을 꼭 가져가세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시에 선택 마감</b><small>변경·취소도 12시 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
+    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:00</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><button class="mission-banner" data-tab="missions"><span><b>🎁 간식 쿠폰 이벤트</b><small>이벤트별 참여 조건과 쿠폰을 확인하세요</small></span><span>${state.dashboard.missionEvent ? "참여하기 →" : "내 신청 확인 →"}</span></button><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div><div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">오늘의 선택을 공유했어요. 종이 식권을 꼭 가져가세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시에 선택 마감</b><small>변경·취소도 12시 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
   );
 }
 async function loadToday() {
@@ -197,17 +198,228 @@ async function loadBoard() {
     `<section class="hero"><div><span class="eyebrow">OUR LITTLE LUNCH BOARD</span><h1>한 끼 사이, 한마디.</h1><p class="intro">오늘의 메뉴부터 작은 공지까지, 함께 나누는 공간이에요.</p></div><span class="hero-art" aria-hidden="true"><span class="plate">💬</span></span></section><form id="post-form" class="panel post-composer"><label class="field">게시글 제목<input name="title" required maxlength="80" placeholder="예: 오늘 칼국수 같이 먹을 분?"></label><label for="post-body"><b>오늘 나누고 싶은 이야기</b></label><textarea id="post-body" name="body" maxlength="1000" required placeholder="추천 메뉴, 식당 소식, 함께 나눌 이야기를 남겨주세요."></textarea><div class="composer-actions">${state.user.role === "admin" ? '<label class="check"><input type="checkbox" name="pinned">운영 공지로 상단 고정</label>' : '<small class="muted">모두가 읽는 공간이에요. 서로를 배려해주세요.</small>'}<button class="btn small" type="submit">게시하기 ↗</button></div></form><div class="section-head"><h2>우리의 이야기 <span class="muted">${posts.length}</span></h2><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div>${posts.length ? `<section class="board-grid">${posts.map((p) => `<article class="post ${p.pinned ? "pinned" : ""}"><div class="post-top"><b>${p.pinned ? "📌 운영 공지" : esc(trackName(p.track))}</b><span>${esc(p.name)}</span></div><h3 class="post-title">${esc(p.title || p.body.split(/\r?\n/)[0].slice(0, 80))}</h3><div class="post-body">${esc(p.body)}</div><div class="post-bottom"><time datetime="${esc(p.created_at)}">${new Intl.DateTimeFormat("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(p.created_at))}</time>${p.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-post" data-id="${p.id}">삭제</button>` : ""}</div></article>`).join("")}</section>` : '<div class="empty"><div class="empty-icon">📝</div><h3>첫 번째 이야기를 남겨주세요.</h3><p>맛있었던 메뉴나 함께 나누고 싶은 소식도 좋아요.</p></div>'}`,
   );
 }
-async function loadAdmin(day) {
-  const data = await api(
-    `/admin/overview${day ? `?day=${encodeURIComponent(day)}` : ""}`,
+const missionStatus = {
+  pending: "확인 중",
+  approved: "쿠폰 수령 가능",
+  rejected: "보완 필요",
+  issued: "쿠폰 지급 완료",
+};
+const eventKinds = {
+  entry: "응모하기 · 조건 확인",
+  lunch: "점심 선택 기록 + 식사 완료",
+  recommend: "게시판 추천 글 제출",
+  review: "게시판 후기 글 제출",
+};
+const won = (value) => Number(value).toLocaleString("ko-KR") + "원";
+async function loadMissions() {
+  const data = await api("/missions");
+  if (state.tab !== "missions") return;
+  state.missions = data;
+  shell(
+    `<section class="hero"><div><span class="eyebrow">LUNCH EVENTS</span><h1>간식 쿠폰 이벤트</h1><p class="intro">이벤트 조건을 확인하고, 내 계정으로 간편하게 응모하세요.</p></div></section><div class="notice"><b>응모자: ${esc(data.user.name)} · ${esc(data.user.loginId)}</b><br>로그인한 본인 정보로 응모합니다. 미션별 한 번만 쿠폰을 받을 수 있어요. 운영진 확인 방식의 신청은 제출 순서대로 자리를 확보하며, 보완 요청 시 자리가 다시 열립니다.</div>${!data.eligible ? '<p class="notice">학생 계정으로 참여할 수 있습니다. 운영진은 운영 관리에서 이벤트를 생성하고 신청을 확인해주세요.</p>' : ""}${
+      data.events.length
+        ? data.events
+            .map((event) => {
+              const open =
+                event.active &&
+                data.day >= event.start_day &&
+                (!event.end_day || data.day <= event.end_day);
+              return `<section class="event-section"><div class="section-head"><div><h2>${esc(event.title)}</h2><p class="event-description">${esc(event.description)}</p><p class="footnote">${event.start_day} ~ ${event.end_day || "종료일 미정"} · 미션당 ${won(event.reward_amount)} 쿠폰</p></div><span class="pill ${open ? "green" : "gray"}">${open ? "접수 중" : "접수 기간 아님"}</span></div><div class="mission-grid">${event.missions
+                .map((m) => {
+                  const claim = data.claims.find(
+                      (c) => c.mission_id === m.missionId,
+                    ),
+                    done = claim && claim.status !== "rejected";
+                  const available =
+                    data.eligible && open && m.used < m.limit && !done;
+                  const start = new Date(
+                    `${event.start_day}T00:00:00+09:00`,
+                  ).toISOString();
+                  const end = event.end_day
+                    ? new Date(
+                        new Date(`${event.end_day}T00:00:00+09:00`).getTime() +
+                          86400000,
+                      ).toISOString()
+                    : null;
+                  const posts = data.posts.filter(
+                    (p) =>
+                      p.created_at >= start &&
+                      (!end || p.created_at < end) &&
+                      !data.claims.some(
+                        (c) =>
+                          c.event_id === event.id &&
+                          c.mission_id !== m.missionId &&
+                          c.status !== "rejected" &&
+                          c.post_id === p.id,
+                      ),
+                  );
+                  return `<article class="panel mission-card" data-mission="${m.missionId}"><span class="eyebrow">${won(event.reward_amount)} 쿠폰</span><h3>${esc(m.title)}</h3><p class="muted event-description">${esc(m.description)}</p><div class="mission-count"><b>${m.used} / ${m.limit}명 접수</b><span class="pill ${m.used >= m.limit ? "gray" : "green"}">${m.used >= m.limit ? "선착순 마감" : `${m.limit - m.used}명 남음`}</span></div><p class="footnote">${m.requiresReview ? "운영진 확인 후 승인" : "접수 조건 충족 시 즉시 승인"}</p>${claim ? `<div class="mission-result"><b>${missionStatus[claim.status]}</b>${claim.status === "rejected" ? `<p>${esc(claim.review_note)}</p>` : claim.status === "approved" ? `<div class="coupon-code">${esc(claim.coupon_code)}</div><p class="footnote">운영진에게 확인번호를 보여주고 ${won(claim.reward_amount)} 쿠폰을 받으세요.</p>` : claim.status === "issued" ? '<p class="footnote">운영진이 쿠폰을 전달했어요. 이 미션은 다시 참여할 수 없습니다.</p>' : '<p class="footnote">선착순 자리를 확보했어요. 운영진 확인을 기다려주세요.</p>'}</div>` : ""}${
+                    !done
+                      ? `<form class="mission-claim-form" data-mission="${m.missionId}">${
+                          m.kind === "entry"
+                            ? `<label class="field">참여 내용 <small>(선택)</small><textarea name="note" maxlength="500" placeholder="운영진에게 전달할 참여 내용을 남겨주세요." ${available ? "" : "disabled"}></textarea></label><label class="check"><input type="checkbox" name="accepted" required ${available ? "" : "disabled"}>위 이벤트 조건을 확인하고 응모합니다.</label>`
+                            : m.kind === "lunch"
+                              ? `<label class="field">식사한 날짜와 식당<select name="day" required ${available ? "" : "disabled"}><option value="">식사 기록 선택</option>${data.choices
+                                  .filter(
+                                    (c) =>
+                                      c.day >= event.start_day &&
+                                      (!event.end_day ||
+                                        c.day <= event.end_day),
+                                  )
+                                  .map(
+                                    (c) =>
+                                      `<option value="${c.day}" ${c.day === data.day && data.minute < 840 ? "disabled" : ""}>${c.day} · ${esc(c.restaurant)}</option>`,
+                                  )
+                                  .join(
+                                    "",
+                                  )}</select></label><label class="check"><input type="checkbox" name="confirmedMeal" required ${available ? "" : "disabled"}>선택한 식당에서 식사를 마쳤어요.</label><p class="footnote">오늘 식사는 오후 2시부터 제출할 수 있어요. 선택 기록이 없으면 오늘의 식당부터 체크해주세요.</p>`
+                              : `<label class="field">미션에 제출할 내 게시글<select name="postId" required ${available ? "" : "disabled"}><option value="">게시글 선택</option>${posts.map((p) => `<option value="${p.id}">${esc(p.title || p.body.split(/\r?\n/)[0].slice(0, 80))}</option>`).join("")}</select></label><p class="footnote">이벤트 기간에 작성한 글로 참여해주세요. 한 이벤트의 각 미션은 서로 다른 글을 제출해야 합니다.</p><button class="btn ghost small" type="button" data-tab="board">게시판에 글 쓰기 →</button>`
+                        }<button class="btn full" type="submit" ${available ? "" : "disabled"}>${claim?.status === "rejected" ? "보완해서 다시 응모" : m.kind === "entry" ? "응모하기" : "미션 제출하고 응모하기"}</button></form>`
+                      : ""
+                  }</article>`;
+                })
+                .join("")}</div></section>`;
+            })
+            .join("")
+        : '<div class="empty"><h2>준비 중인 이벤트가 있어요</h2><p>운영진이 이벤트 접수를 시작하면 여기에 표시됩니다.</p></div>'
+    }<p class="footnote">확인번호는 쿠폰 수령 확인용입니다. 실제 사용 가능한 쿠폰은 운영진이 별도로 전달합니다.</p>`,
   );
+}
+function missionAdmin(data) {
+  return `<section class="panel mission-admin"><div class="section-head"><div><h2>간식 쿠폰 이벤트 관리</h2><p>이벤트 조건, 참여 방식, 지급 인원과 기간을 직접 설정하세요.</p></div><button class="btn small" data-action="event-edit">+ 이벤트 만들기</button></div>${data.events
+    .map((event) => {
+      const claims = data.claims.filter((c) => c.event_id === event.id);
+      const maximum =
+        event.missions.reduce((sum, m) => sum + m.limit, 0) *
+        event.reward_amount;
+      return `<section class="admin-event" data-event="${event.id}"><div class="section-head"><div><h3>${esc(event.title)}</h3><p>${event.start_day} ~ ${event.end_day || "종료일 미정"} · 쿠폰 ${won(event.reward_amount)} · 현재 설정 최대 ${won(maximum)}</p></div><div class="table-actions"><button class="btn secondary small" data-action="event-edit" data-id="${event.id}">조건·지급 인원 수정</button><button class="btn ${event.active ? "secondary" : ""} small" data-action="mission-toggle" data-id="${event.id}">${event.active ? "접수 중단" : "접수 시작"}</button></div></div><div class="filter-row">${event.missions.map((m) => `<span class="pill gray">${esc(m.title)} ${m.used}/${m.limit}명</span>`).join("")}</div><p class="footnote">${event.active ? "접수 상태: 열림" : "접수 상태: 중단"} · 확인 중·승인·지급 완료 신청이 정원을 차지합니다. 접수 중단·재개는 지급 수량을 초기화하지 않습니다.</p>${claims.length ? `<div class="table-wrap"><table><thead><tr><th>응모자</th><th>미션 / 제출일</th><th>제출 내용</th><th>상태 / 확인번호</th><th>처리</th></tr></thead><tbody>${claims.map((c) => `<tr><td><b>${esc(c.name)}</b><br><small>${esc(c.login_id)} · ${esc(trackName(c.track))}</small></td><td>${esc(event.missions.find((m) => m.missionId === c.mission_id)?.title || c.mission)}<br><small>${new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Seoul" }).format(new Date(c.created_at))}</small><br><small>${won(c.reward_amount)}</small></td><td><details><summary>제출 내용 보기</summary><p class="footnote event-description">신청 당시 조건: ${esc(c.condition_snapshot)}</p><div class="post-body mission-evidence">${esc(c.evidence)}</div></details>${c.review_note ? `<p class="footnote">보완 사유: ${esc(c.review_note)}</p>` : ""}</td><td>${missionStatus[c.status]}${c.coupon_code ? `<br><small>${esc(c.coupon_code)}</small>` : ""}</td><td><div class="table-actions">${c.status === "pending" ? `<button class="btn small" data-action="mission-approve" data-id="${c.id}">승인</button><button class="btn secondary small" data-action="mission-reject" data-id="${c.id}">보완 요청</button>` : c.status === "approved" ? `<button class="btn small" data-action="mission-issue" data-id="${c.id}">쿠폰 지급 완료</button>` : "—"}</div></td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">아직 신청이 없습니다. 조건을 확인한 뒤 접수를 시작해주세요.</p>'}</section>`;
+    })
+    .join("")}</section>`;
+}
+function eventRow(
+  m = {
+    kind: "entry",
+    title: "",
+    description: "",
+    limit: 20,
+    requiresReview: true,
+  },
+) {
+  const locked =
+    m.missionId &&
+    state.missionAdmin.claims.some((c) => c.mission_id === m.missionId);
+  return `<fieldset class="event-mission-row" ${m.missionId ? `data-id="${m.missionId}"` : ""}><legend>미션 조건</legend><label class="field">미션 이름<input name="missionTitle" value="${esc(m.title)}" required maxlength="80" placeholder="예: 맛집 하나 추천하기"></label><label class="field">이벤트 조건<textarea name="missionDescription" required maxlength="1000" placeholder="무엇을 하면 쿠폰을 받을 수 있는지 적어주세요.">${esc(m.description)}</textarea></label><div class="inline-form"><label class="field">참여 방식<select name="kind" ${locked ? "disabled" : ""}>${Object.entries(
+    eventKinds,
+  )
+    .map(
+      ([kind, title]) =>
+        `<option value="${kind}" ${kind === m.kind ? "selected" : ""}>${title}</option>`,
+    )
+    .join(
+      "",
+    )}</select></label><label class="field">지급 인원<input type="number" name="capacity" min="1" max="500" required value="${m.limit}"></label><label class="field">승인 방식<select name="requiresReview"><option value="yes" ${m.requiresReview ? "selected" : ""}>운영진 확인 후 승인</option><option value="no" ${!m.requiresReview ? "selected" : ""}>접수 즉시 승인 · 내용 심사 생략</option></select></label></div><button class="btn ghost small" type="button" data-action="event-remove-row" ${locked ? "disabled" : ""}>이 미션 삭제</button>${locked ? '<p class="footnote">참여 이력이 있어 참여 방식 변경과 미션 삭제는 제한됩니다.</p>' : ""}</fieldset>`;
+}
+function editEvent(id) {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const event = state.missionAdmin.events.find((e) => e.id === id) || {
+    title: "",
+    description: "",
+    start_day: today,
+    end_day: "",
+    reward_amount: 1000,
+    missions: [
+      {
+        kind: "entry",
+        title: "이벤트 응모하기",
+        description: "이벤트 조건을 확인하고 응모해주세요.",
+        limit: 20,
+        requiresReview: true,
+      },
+    ],
+  };
+  const locked = state.missionAdmin.claims.some((c) => c.event_id === id);
+  modal(
+    `<h2>${id ? "이벤트 조건·지급 인원 수정" : "새 이벤트 만들기"}</h2><p>저장 후 운영 관리에서 접수를 시작할 수 있습니다.</p><form id="event-form"><label class="field">이벤트 이름<input name="title" required maxlength="80" value="${esc(event.title)}" placeholder="예: 이번 주 맛집 추천 이벤트"></label><label class="field">이벤트 소개<textarea name="description" maxlength="1000">${esc(event.description)}</textarea></label><div class="inline-form"><label class="field">시작일<input name="startDay" type="date" required value="${event.start_day}"></label><label class="field">종료일 <small>(선택)</small><input name="endDay" type="date" value="${event.end_day}"></label><label class="field">미션당 쿠폰 금액<input name="rewardAmount" type="number" min="1" max="100000" required value="${event.reward_amount}" ${locked ? "readonly" : ""}></label></div><div id="event-mission-rows">${event.missions.map((m) => eventRow(m)).join("")}</div><button class="btn secondary small" type="button" data-action="event-add-row">+ 미션 조건 추가</button><p class="footnote">미션별 지급 인원 × 쿠폰 금액이 최대 예산입니다. 이미 접수된 인원보다 정원을 줄일 수 없습니다. 참여 이력이 있으면 쿠폰 금액은 유지되며, 조건 수정 전 신청은 당시 조건으로 확인합니다.</p><p class="form-error" id="event-error" role="alert"></p><div class="modal-actions"><button class="btn secondary" type="button" data-action="close-modal">닫기</button><button class="btn" type="submit">이벤트 저장</button></div></form>`,
+  );
+  document.querySelector("#event-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target,
+      data = new FormData(form),
+      button = form.querySelector("[type=submit]");
+    button.disabled = true;
+    const missions = [...form.querySelectorAll(".event-mission-row")].map(
+      (row) => ({
+        ...(row.dataset.id ? { id: Number(row.dataset.id) } : {}),
+        kind: row.querySelector("[name=kind]").value,
+        title: row.querySelector("[name=missionTitle]").value,
+        description: row.querySelector("[name=missionDescription]").value,
+        capacity: Number(row.querySelector("[name=capacity]").value),
+        requiresReview:
+          row.querySelector("[name=requiresReview]").value === "yes",
+      }),
+    );
+    try {
+      await api("/admin/missions/save", "POST", {
+        id,
+        title: data.get("title"),
+        description: data.get("description"),
+        startDay: data.get("startDay"),
+        endDay: data.get("endDay"),
+        rewardAmount: Number(data.get("rewardAmount")),
+        missions,
+      });
+      dialog.close();
+      await loadAdmin(state.admin.day);
+      toast("이벤트를 저장했어요. 운영 관리에서 접수를 시작할 수 있습니다.");
+    } catch (e) {
+      document.querySelector("#event-error").textContent = e.message;
+      button.disabled = false;
+    }
+  };
+}
+
+function rejectMission(id) {
+  modal(
+    '<h2>미션 보완 요청</h2><p>학생에게 보완 사유를 알려주세요. 이 신청의 선착순 자리는 다시 열립니다.</p><form id="mission-reject-form"><label class="field">보완 사유<textarea name="note" required maxlength="200"></textarea></label><p class="form-error" role="alert"></p><div class="modal-actions"><button type="button" class="btn secondary" data-action="close-modal">닫기</button><button class="btn" type="submit">보완 요청</button></div></form>',
+  );
+  document.querySelector("#mission-reject-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const button = event.target.querySelector("[type=submit]");
+    button.disabled = true;
+    try {
+      await api("/admin/missions/review", "POST", {
+        id,
+        status: "rejected",
+        note: new FormData(event.target).get("note"),
+      });
+      dialog.close();
+      await loadAdmin(state.admin.day);
+      toast("보완을 요청했어요. 선착순 자리가 다시 열렸습니다.");
+    } catch (e) {
+      event.target.querySelector(".form-error").textContent = e.message;
+      button.disabled = false;
+    }
+  };
+}
+
+async function loadAdmin(day) {
+  const [data, missions] = await Promise.all([
+    api(`/admin/overview${day ? `?day=${encodeURIComponent(day)}` : ""}`),
+    api("/admin/missions"),
+  ]);
+  state.missionAdmin = missions;
   state.admin = data;
   if (state.tab !== "admin") return;
   const options = data.tracks
     .map((t) => `<option value="${esc(t)}">${esc(trackName(t))}</option>`)
     .join("");
   shell(
-    `<div class="section-head"><div><span class="eyebrow">OPERATIONS</span><h1 style="font-size:30px;margin-top:7px">점심 운영 대시보드</h1><p>식당별 인원과 이용자 명단을 한눈에 확인하세요.</p></div><label class="field date-field">조회 날짜<input type="date" id="admin-day" value="${data.day}"></label></div><div class="stats"><div class="stat"><span>선택한 날짜 예정 인원</span><strong>${data.reservations.length}<small>명</small></strong></div><div class="stat"><span>표시 중인 식당</span><strong>${data.restaurants.filter((r) => r.listed).length}<small>곳</small></strong></div><div class="stat"><span>등록된 이용자</span><strong>${data.users.length}<small>명</small></strong></div></div><section class="panel"><div class="section-head"><div><h2>식당별 예정 인원</h2><p>정원 설정 없이 인원을 공유합니다. 식당에서 따로 조작할 필요가 없어요.</p></div><button class="btn small" data-action="edit-restaurant">+ 식당 추가</button></div><div class="table-wrap"><table><thead><tr><th>식당</th><th>예정 인원</th><th>표시 상태</th><th>관리</th></tr></thead><tbody>${data.restaurants.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.count}명</td><td><span class="pill ${r.listed ? "green" : "gray"}">${r.listed ? "표시 중" : "숨김"}</span></td><td><div class="table-actions"><button class="btn secondary small" data-action="edit-restaurant" data-id="${r.id}">수정</button><button class="btn secondary small" data-action="restaurant-link" data-id="${r.id}">인원 보기 링크</button></div></td></tr>`).join("")}</tbody></table></div></section><section class="panel"><div class="section-head"><h2>식당 선택 명단</h2><button class="btn secondary small" data-action="export" ${data.reservations.length ? "" : "disabled"}>CSV 다운로드 ↓</button></div>${data.reservations.length ? `<div class="table-wrap"><table><thead><tr><th>식당</th><th>이름</th><th>학번 / ID</th><th>구분</th></tr></thead><tbody>${data.reservations.map((r) => `<tr><td>${esc(r.restaurant)}</td><td>${esc(r.name)}</td><td>${esc(r.login_id)}</td><td><span class="pill gray">${esc(trackName(r.track))}</span></td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">선택한 날짜의 식당 선택이 없습니다.</p>'}</section><section class="panel"><div class="section-head"><div><h2>이용자 등록</h2><p>이름·학번·반을 등록하고 초기 비밀번호를 전달해주세요. 운영진 권한은 전체 명단과 계정을 관리할 수 있습니다.</p></div></div><form id="user-form" class="inline-form"><label class="field">이름<input name="name" required maxlength="40" placeholder="김민수"></label><label class="field">학번 / 로그인 ID<input name="loginId" required maxlength="40" placeholder="AX2026001"></label><label class="field">반 / 구분<select name="track">${options}</select></label><label class="field">권한<select name="role"><option value="member">일반 이용자</option><option value="admin">운영진 (관리자)</option></select></label><label class="field">초기 비밀번호<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="비워두면 자동 생성"></label><button class="btn" type="submit">이용자 등록</button></form><details style="margin-top:24px"><summary>여러 명 한 번에 등록하기</summary><form id="bulk-user-form" style="margin-top:16px"><label class="field">한 줄에 이름,학번,반을 입력해주세요<textarea name="members" required placeholder="김민수,AX2026001,AX&#10;이서연,SF2026001,SF&#10;박교수,STAFF001,OTHER" maxlength="10000"></textarea></label><p class="footnote">등록된 반: ${data.tracks.map((t) => esc(t)).join(" / ")}. 개인별 초기 비밀번호가 담긴 CSV를 다운로드합니다. 이 파일은 운영진만 보관하고 각 계정 정보는 당사자에게만 전달해주세요.</p><button class="btn small" type="submit">계정 등록 · 초기 비밀번호 CSV ↓</button></form></details></section><section class="panel"><div class="section-head"><div><h2>반 관리</h2><p>새 기수와 반을 추가할 수 있어요.</p></div></div><div class="filter-row">${data.tracks.map((t) => `<span class="pill gray">${esc(trackName(t))}</span>`).join("")}</div><form id="track-form" class="inline-form"><label class="field">새 반 이름<input name="name" required maxlength="30" placeholder="예: AX3기"></label><button class="btn secondary" type="submit">반 추가</button></form></section><section class="panel"><div class="section-head"><h2>등록된 이용자</h2></div><div class="table-wrap"><table><thead><tr><th>이름</th><th>학번 / ID</th><th>구분</th><th>권한 / 계정 상태</th><th>관리</th></tr></thead><tbody>${data.users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.login_id)}</td><td>${esc(trackName(u.track))}</td><td>${u.role === "admin" ? "운영진" : "일반 이용자"} · ${u.must_change ? "첫 로그인 대기" : "이용 중"}</td><td>${u.id !== state.user.id ? `<div class="table-actions"><button class="btn secondary small" data-action="change-role" data-id="${u.id}">${u.role === "admin" ? "일반 이용자로 변경" : "운영진으로 지정"}</button><button class="btn secondary small" data-action="reset-password" data-id="${u.id}">비밀번호 초기화</button></div>` : "—"}</td></tr>`).join("")}</tbody></table></div></section>`,
+    `<div class="section-head"><div><span class="eyebrow">OPERATIONS</span><h1 style="font-size:30px;margin-top:7px">점심 운영 대시보드</h1><p>식당별 인원과 이용자 명단을 한눈에 확인하세요.</p></div><label class="field date-field">조회 날짜<input type="date" id="admin-day" value="${data.day}"></label></div><div class="stats"><div class="stat"><span>선택한 날짜 예정 인원</span><strong>${data.reservations.length}<small>명</small></strong></div><div class="stat"><span>표시 중인 식당</span><strong>${data.restaurants.filter((r) => r.listed).length}<small>곳</small></strong></div><div class="stat"><span>등록된 이용자</span><strong>${data.users.length}<small>명</small></strong></div></div><section class="panel"><div class="section-head"><div><h2>식당별 예정 인원</h2><p>정원 설정 없이 인원을 공유합니다. 식당에서 따로 조작할 필요가 없어요.</p></div><button class="btn small" data-action="edit-restaurant">+ 식당 추가</button></div><div class="table-wrap"><table><thead><tr><th>식당</th><th>예정 인원</th><th>표시 상태</th><th>관리</th></tr></thead><tbody>${data.restaurants.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.count}명</td><td><span class="pill ${r.listed ? "green" : "gray"}">${r.listed ? "표시 중" : "숨김"}</span></td><td><div class="table-actions"><button class="btn secondary small" data-action="edit-restaurant" data-id="${r.id}">수정</button><button class="btn secondary small" data-action="restaurant-link" data-id="${r.id}">인원 보기 링크</button></div></td></tr>`).join("")}</tbody></table></div></section><section class="panel"><div class="section-head"><h2>식당 선택 명단</h2><button class="btn secondary small" data-action="export" ${data.reservations.length ? "" : "disabled"}>CSV 다운로드 ↓</button></div>${data.reservations.length ? `<div class="table-wrap"><table><thead><tr><th>식당</th><th>이름</th><th>학번 / ID</th><th>구분</th></tr></thead><tbody>${data.reservations.map((r) => `<tr><td>${esc(r.restaurant)}</td><td>${esc(r.name)}</td><td>${esc(r.login_id)}</td><td><span class="pill gray">${esc(trackName(r.track))}</span></td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">선택한 날짜의 식당 선택이 없습니다.</p>'}</section><section class="panel"><div class="section-head"><div><h2>이용자 등록</h2><p>이름·학번·반을 등록하고 초기 비밀번호를 전달해주세요. 운영진 권한은 전체 명단과 계정을 관리할 수 있습니다.</p></div></div><form id="user-form" class="inline-form"><label class="field">이름<input name="name" required maxlength="40" placeholder="김민수"></label><label class="field">학번 / 로그인 ID<input name="loginId" required maxlength="40" placeholder="AX2026001"></label><label class="field">반 / 구분<select name="track">${options}</select></label><label class="field">권한<select name="role"><option value="member">일반 이용자</option><option value="admin">운영진 (관리자)</option></select></label><label class="field">초기 비밀번호<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="비워두면 자동 생성"></label><button class="btn" type="submit">이용자 등록</button></form><details style="margin-top:24px"><summary>여러 명 한 번에 등록하기</summary><form id="bulk-user-form" style="margin-top:16px"><label class="field">한 줄에 이름,학번,반을 입력해주세요<textarea name="members" required placeholder="김민수,AX2026001,AX&#10;이서연,SF2026001,SF&#10;박교수,STAFF001,OTHER" maxlength="10000"></textarea></label><p class="footnote">등록된 반: ${data.tracks.map((t) => esc(t)).join(" / ")}. 개인별 초기 비밀번호가 담긴 CSV를 다운로드합니다. 이 파일은 운영진만 보관하고 각 계정 정보는 당사자에게만 전달해주세요.</p><button class="btn small" type="submit">계정 등록 · 초기 비밀번호 CSV ↓</button></form></details></section><section class="panel"><div class="section-head"><div><h2>반 관리</h2><p>새 기수와 반을 추가할 수 있어요.</p></div></div><div class="filter-row">${data.tracks.map((t) => `<span class="pill gray">${esc(trackName(t))}</span>`).join("")}</div><form id="track-form" class="inline-form"><label class="field">새 반 이름<input name="name" required maxlength="30" placeholder="예: AX3기"></label><button class="btn secondary" type="submit">반 추가</button></form></section><section class="panel"><div class="section-head"><h2>등록된 이용자</h2></div><div class="table-wrap"><table><thead><tr><th>이름</th><th>학번 / ID</th><th>구분</th><th>권한 / 계정 상태</th><th>관리</th></tr></thead><tbody>${data.users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.login_id)}</td><td>${esc(trackName(u.track))}</td><td>${u.role === "admin" ? "운영진" : "일반 이용자"} · ${u.must_change ? "첫 로그인 대기" : "이용 중"}</td><td>${u.id !== state.user.id ? `<div class="table-actions"><button class="btn secondary small" data-action="change-role" data-id="${u.id}">${u.role === "admin" ? "일반 이용자로 변경" : "운영진으로 지정"}</button><button class="btn secondary small" data-action="reset-password" data-id="${u.id}">비밀번호 초기화</button></div>` : "—"}</td></tr>`).join("")}</tbody></table></div></section>${missionAdmin(missions)}`,
   );
 }
 function accountDetails(account) {
@@ -373,6 +585,7 @@ async function renderRestaurant() {
 async function selectTab(tab) {
   state.tab = tab;
   if (tab === "today") await loadToday();
+  else if (tab === "missions") await loadMissions();
   else if (tab === "history") await loadHistory();
   else if (tab === "board") await loadBoard();
   else if (tab === "admin") await loadAdmin();
@@ -448,6 +661,52 @@ document.addEventListener("click", async (event) => {
             toast("권한을 변경했어요. 해당 이용자는 다시 로그인해주세요.");
           },
           "권한 변경",
+        );
+        break;
+      }
+      case "event-edit":
+        editEvent(id || undefined);
+        break;
+      case "event-add-row":
+        if (document.querySelectorAll(".event-mission-row").length >= 10)
+          throw new Error("미션은 최대 10개까지 추가할 수 있습니다.");
+        document
+          .querySelector("#event-mission-rows")
+          .insertAdjacentHTML("beforeend", eventRow());
+        break;
+      case "event-remove-row":
+        target.closest(".event-mission-row").remove();
+        break;
+      case "mission-toggle": {
+        const event = state.missionAdmin.events.find((e) => e.id === id);
+        await api("/admin/missions/event", "POST", {
+          eventId: id,
+          active: !event.active,
+        });
+        await loadAdmin(state.admin.day);
+        toast("이벤트 접수 상태를 변경했어요.");
+        break;
+      }
+      case "mission-reject":
+        rejectMission(id);
+        break;
+      case "mission-approve":
+      case "mission-issue": {
+        const issue = target.dataset.action === "mission-issue";
+        confirmAction(
+          issue ? "쿠폰을 전달했나요?" : "미션을 승인할까요?",
+          issue
+            ? "설정된 금액의 실제 쿠폰을 전달한 뒤 지급 완료로 기록해주세요."
+            : "제출 내용을 확인했으면 승인해주세요. 학생에게 쿠폰 수령 확인번호가 표시됩니다.",
+          async () => {
+            await api("/admin/missions/review", "POST", {
+              id,
+              status: issue ? "issued" : "approved",
+            });
+            await loadAdmin(state.admin.day);
+            toast(issue ? "쿠폰 지급을 기록했어요." : "미션을 승인했어요.");
+          },
+          issue ? "지급 완료" : "승인",
         );
         break;
       }
@@ -528,6 +787,29 @@ document.addEventListener("click", async (event) => {
 });
 document.addEventListener("submit", async (event) => {
   const form = event.target;
+  if (form.classList.contains("mission-claim-form")) {
+    event.preventDefault();
+    const data = new FormData(form),
+      button = form.querySelector("[type=submit]");
+    button.disabled = true;
+    try {
+      await api("/missions/claim", "POST", {
+        missionId: Number(form.dataset.mission),
+        accepted: data.has("accepted"),
+        note: data.get("note") || undefined,
+        day: data.get("day"),
+        confirmedMeal: data.has("confirmedMeal"),
+        postId: data.get("postId") ? Number(data.get("postId")) : undefined,
+      });
+      await loadMissions();
+      toast("응모를 접수했어요. 화면에서 승인 상태를 확인해주세요.");
+    } catch (e) {
+      toast(e.message);
+      button.disabled = false;
+    }
+    return;
+  }
+
   if (
     ![
       "auth-form",
@@ -644,6 +926,12 @@ function startRefresh() {
     try {
       if (location.pathname === "/restaurant") await renderRestaurant();
       else if (state.user && state.tab === "today") await loadToday();
+      else if (
+        state.user &&
+        state.tab === "missions" &&
+        !document.querySelector("input:focus, select:focus, textarea:focus")
+      )
+        await loadMissions();
       else if (
         state.user &&
         state.tab === "admin" &&

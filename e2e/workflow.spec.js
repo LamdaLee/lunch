@@ -74,6 +74,9 @@ test("모바일 로그인 → 예약 → 변경 → 취소, 화면 넘침 없이
   expect(errors).toEqual([]);
 });
 test("게시판은 HTML을 실행하지 않고 텍스트로 표시", async ({ page }) => {
+  await app.db
+    .prepare("UPDATE mission_event SET active=1,start_day=\'2026-10-12\'")
+    .run();
   await login(page);
   await page.getByRole("button", { name: "우리의 게시판" }).click();
   await page.getByLabel("게시글 제목").fill("오늘 같이 먹어요 <b>점심</b>");
@@ -92,6 +95,23 @@ test("게시판은 HTML을 실행하지 않고 텍스트로 표시", async ({ pa
   await expect(page.locator("dialog .post-body")).toContainText("<img src=x");
   expect(await page.evaluate(() => Boolean(window.hacked))).toBe(false);
   await page.getByRole("button", { name: "닫기", exact: true }).click();
+  await page
+    .getByRole("button", { name: "간식 쿠폰 이벤트", exact: true })
+    .click();
+  const mission = page.locator(".mission-card").filter({
+    has: page.getByRole("heading", {
+      name: "맛집 하나 추천하기",
+      exact: true,
+    }),
+  });
+  const post = await app.db
+    .prepare("SELECT id FROM posts WHERE user_id=2 ORDER BY id DESC LIMIT 1")
+    .get();
+  await mission.locator("select").selectOption(String(post.id));
+  await mission
+    .getByRole("button", { name: "미션 제출하고 응모하기", exact: true })
+    .click();
+  await expect(mission.locator(".mission-result")).toContainText("확인 중");
 });
 test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인원 링크는 조회만 가능", async ({
   page,
@@ -286,4 +306,124 @@ test("앞에 0이 있는 4자리 초기 비밀번호로 로그인 후 개인 비
   await expect(
     page.getByRole("heading", { name: "오늘은 어디서 먹을까요?" }),
   ).toBeVisible();
+});
+
+test("운영진 이벤트 생성·인원 수정 → 학생 응모 → 승인·지급", async ({
+  page,
+  browser,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await login(page, "테스트관리자");
+  await page.getByRole("button", { name: "운영 관리", exact: true }).click();
+  await page
+    .getByRole("button", { name: "+ 이벤트 만들기", exact: true })
+    .click();
+  await page
+    .getByLabel("이벤트 이름", { exact: true })
+    .fill("간식 응모 이벤트");
+  await page
+    .getByLabel("이벤트 소개", { exact: true })
+    .fill("조건을 확인하고 신청해주세요.");
+  await page.getByLabel("시작일", { exact: true }).fill("2026-10-12");
+  await page.getByLabel("종료일").fill("2026-10-20");
+  await page
+    .getByLabel("미션 이름", { exact: true })
+    .fill("참여 방법 확인하기");
+  await page
+    .getByRole("textbox", { name: "이벤트 조건", exact: true })
+    .fill("이벤트 조건을 읽고 응모해주세요.");
+  await page.getByLabel("지급 인원", { exact: true }).fill("1");
+  await page.getByRole("button", { name: "이벤트 저장", exact: true }).click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  const adminEvent = page.locator(".admin-event").filter({
+    has: page.getByRole("heading", { name: "간식 응모 이벤트", exact: true }),
+  });
+  await adminEvent
+    .getByRole("button", { name: "접수 시작", exact: true })
+    .click();
+  await expect(adminEvent).toContainText("접수 상태: 열림");
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const student = await context.newPage();
+  await login(student);
+  await student
+    .getByRole("button", { name: "간식 쿠폰 이벤트", exact: true })
+    .click();
+  await expect(student.getByText("응모자: AX학생 · ax001")).toBeVisible();
+  await student
+    .getByRole("checkbox", { name: "위 이벤트 조건을 확인하고 응모합니다." })
+    .check();
+  await student.getByRole("button", { name: "응모하기", exact: true }).click();
+  await expect(student.locator(".mission-result")).toContainText("확인 중");
+  expect(
+    await student.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  const otherContext = await browser.newContext();
+  const other = await otherContext.newPage();
+  await login(other, "sf001");
+  await other
+    .getByRole("button", { name: "간식 쿠폰 이벤트", exact: true })
+    .click();
+  await expect(
+    other.getByRole("button", { name: "응모하기", exact: true }),
+  ).toBeDisabled();
+  await expect(other.getByText("선착순 마감", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "운영 관리", exact: true }).click();
+  await adminEvent.getByRole("button", { name: "승인", exact: true }).click();
+  await page
+    .locator("dialog")
+    .getByRole("button", { name: "승인", exact: true })
+    .click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await student
+    .getByRole("button", { name: "간식 쿠폰 이벤트", exact: true })
+    .click();
+  await expect(student.locator(".coupon-code")).toContainText("LP-");
+  await adminEvent
+    .getByRole("button", { name: "쿠폰 지급 완료", exact: true })
+    .click();
+  await page
+    .locator("dialog")
+    .getByRole("button", { name: "지급 완료", exact: true })
+    .click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await student
+    .getByRole("button", { name: "간식 쿠폰 이벤트", exact: true })
+    .click();
+  await expect(student.locator(".mission-result")).toContainText(
+    "쿠폰 지급 완료",
+  );
+  await adminEvent
+    .getByRole("button", { name: "조건·지급 인원 수정", exact: true })
+    .click();
+  await page.getByLabel("지급 인원", { exact: true }).fill("2");
+  await page
+    .getByRole("combobox", { name: "승인 방식", exact: true })
+    .selectOption("no");
+  await page.getByRole("button", { name: "이벤트 저장", exact: true }).click();
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await other
+    .getByRole("button", { name: "간식 쿠폰 이벤트", exact: true })
+    .click();
+  await other
+    .getByRole("checkbox", { name: "위 이벤트 조건을 확인하고 응모합니다." })
+    .check();
+  await other.getByRole("button", { name: "응모하기", exact: true }).click();
+  await expect(other.locator(".mission-result")).toContainText(
+    "쿠폰 수령 가능",
+  );
+  await expect(other.locator(".coupon-code")).toContainText("LP-");
+  await student.screenshot({
+    path: ".local/screenshots/event-mobile.png",
+    fullPage: true,
+  });
+  await page.screenshot({
+    path: ".local/screenshots/event-admin.png",
+    fullPage: true,
+  });
+  await context.close();
+  await otherContext.close();
 });
