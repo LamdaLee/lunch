@@ -1505,3 +1505,22 @@ dialog > p {
     padding: 18px;
   }
 }
+
+.restaurant-records {
+  margin-bottom: 24px;
+  text-align: center;
+}
+.restaurant-records h2 {
+  font-size: 18px;
+}
+.restaurant-records .record-count {
+  margin: 12px 0;
+  font-size: 18px;
+}
+.restaurant-records .record-count b {
+  font-size: 36px;
+  margin-right: 6px;
+}
+.restaurant-view .track-counts {
+  flex-wrap: wrap;
+}

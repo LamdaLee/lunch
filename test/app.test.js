@@ -360,6 +360,47 @@ test("식당 링크는 자기 식당 인원만 제공하고 재발급 시 기존
   const response = await app.request("/restaurant?token=" + restaurantToken);
   assert.equal(response.status, 200);
   assert.equal(response.data.count, 1);
+  assert.equal(response.data.actualCount, 0);
+  const sfCookie = await app.login("SF학생");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: sfCookie,
+    body: { restaurantId: 2 },
+  });
+  app.setTime("2026-10-12T14:00:00+09:00");
+  assert.equal(
+    (
+      await app.request("/meal-record", {
+        method: "POST",
+        cookie,
+        body: { day: "2026-10-12", restaurantId: 2, reason: "sold_out" },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await app.request("/meal-record", {
+        method: "POST",
+        cookie: sfCookie,
+        body: { day: "2026-10-12", restaurantId: 1, reason: "changed" },
+      })
+    ).status,
+    200,
+  );
+  const afterMeal = await app.request("/restaurant?token=" + restaurantToken);
+  assert.equal(afterMeal.data.count, 1);
+  assert.deepEqual(afterMeal.data.totals, [{ track: "AX", count: 1 }]);
+  assert.equal(afterMeal.data.actualCount, 1);
+  assert.deepEqual(afterMeal.data.actualTotals, [{ track: "SF", count: 1 }]);
+  assert.equal(afterMeal.data.changedAwayCount, 1);
+  assert.equal(JSON.stringify(afterMeal.data).includes("sf001"), false);
+  assert.equal(JSON.stringify(afterMeal.data).includes("SF학생"), false);
+  app.setTime("2026-10-13T10:00:00+09:00");
+  const nextDay = await app.request("/restaurant?token=" + restaurantToken);
+  assert.equal(nextDay.data.count, 0);
+  assert.equal(nextDay.data.actualCount, 0);
+  assert.equal(nextDay.data.changedAwayCount, 0);
   assert.equal(JSON.stringify(response.data).includes("AX학생"), false);
   assert.equal(response.data.restaurant.access_token, undefined);
   assert.equal((await app.request("/restaurant?token=wrong")).status, 404);

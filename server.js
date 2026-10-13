@@ -296,10 +296,26 @@ export function createApp({
                 `SELECT u.track, COUNT(*) count FROM reservations r JOIN users u ON u.id=r.user_id WHERE r.restaurant_id=? AND r.day=? GROUP BY u.track`,
               )
               .all(restaurant.id, clock.day);
+            const actualTotals = await db
+              .prepare(
+                `SELECT u.track, COUNT(*) count FROM meal_records m JOIN users u ON u.id=m.user_id WHERE m.restaurant_id=? AND m.day=? GROUP BY u.track`,
+              )
+              .all(restaurant.id, clock.day);
+            const changedAway = await db
+              .prepare(
+                `SELECT COUNT(*) count FROM reservations r JOIN meal_records m ON m.user_id=r.user_id AND m.day=r.day WHERE r.restaurant_id=? AND r.day=? AND m.restaurant_id<>r.restaurant_id`,
+              )
+              .get(restaurant.id, clock.day);
             return send(200, {
               restaurant,
               totals,
               count: totals.reduce((sum, row) => sum + row.count, 0),
+              actualTotals,
+              actualCount: actualTotals.reduce(
+                (sum, row) => sum + row.count,
+                0,
+              ),
+              changedAwayCount: changedAway.count,
               clock,
             });
           }

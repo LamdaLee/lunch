@@ -201,6 +201,13 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
   const restaurant = await context.newPage();
   await restaurant.goto(link);
   await expect(restaurant.locator(".count")).toHaveText("1명");
+  await expect(
+    restaurant.getByRole("heading", { name: "입력된 실제 식사 기록" }),
+  ).toBeVisible();
+  await expect(restaurant.locator(".record-count")).toHaveText("0명");
+  await expect(
+    restaurant.getByText("미입력자는 포함되지 않아", { exact: false }),
+  ).toBeVisible();
   await expect(restaurant.getByText("신규학생", { exact: true })).toHaveCount(
     0,
   );
