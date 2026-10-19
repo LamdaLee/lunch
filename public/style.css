@@ -1708,3 +1708,6 @@ dialog > p {
 .restaurant-orders tr:not(.order-request) > :not(:first-child) {
   white-space: nowrap;
 }
+.limit-now {
+  margin: 10px 0;
+}

@@ -284,7 +284,7 @@ export function createApp({
             (typeof value === "string" &&
               (await db
                 .prepare(
-                  "SELECT id,name,description,menu FROM restaurants WHERE access_token=?",
+                  "SELECT id,name,description,menu,max_people FROM restaurants WHERE access_token=?",
                 )
                 .get(value))) ||
             fail(404, "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.");
@@ -317,6 +317,17 @@ export function createApp({
               )
               .run(restaurant.id, name, price);
             return send(201, { ok: true });
+          }
+          const maxPeopleOf = (value) =>
+            Number.isInteger(value) && value >= 0 && value <= 500
+              ? value
+              : fail(400, "최대 인원은 0~500명으로 입력해주세요. 0은 제한 없음입니다.");
+          if (path === "/api/restaurant/limit" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            await db
+              .prepare("UPDATE restaurants SET max_people=? WHERE id=?")
+              .run(maxPeopleOf(body.maxPeople), restaurant.id);
+            return send(200, { ok: true });
           }
           if (path === "/api/restaurant/menu/remove" && req.method === "POST") {
             const restaurant = await restaurantByToken(body.token);
@@ -503,7 +514,7 @@ export function createApp({
           if (path === "/api/dashboard" && req.method === "GET") {
             const restaurants = await db
               .prepare(
-                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.category,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
+                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.category,r.listed,r.max_people, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
               )
               .all(clock.day);
             const reservation =
@@ -605,6 +616,22 @@ export function createApp({
               const existing = await db
                 .prepare("SELECT * FROM reservations WHERE user_id=? AND day=?")
                 .get(user.id, clock.day);
+              // Runs inside the write transaction, so concurrent picks cannot overfill.
+              if (
+                restaurant.max_people > 0 &&
+                existing?.restaurant_id !== restaurant.id
+              ) {
+                const { n } = await db
+                  .prepare(
+                    "SELECT COUNT(*) n FROM reservations WHERE restaurant_id=? AND day=?",
+                  )
+                  .get(restaurant.id, clock.day);
+                if (Number(n) >= restaurant.max_people)
+                  fail(
+                    409,
+                    `${restaurant.name}은(는) 오늘 정원 ${restaurant.max_people}명이 다 찼어요. 다른 식당을 선택해주세요.`,
+                  );
+              }
               if (
                 existing?.restaurant_id === restaurant.id &&
                 (existing.menu_item_id ?? null) === menuItemId &&
@@ -955,6 +982,8 @@ export function createApp({
               }
               if (typeof body.listed !== "boolean")
                 fail(400, "식당 표시 여부를 선택해주세요.");
+              const maxPeople =
+                body.maxPeople === undefined ? null : maxPeopleOf(body.maxPeople);
               if (body.id) {
                 const restaurant = await db
                   .prepare("SELECT id FROM restaurants WHERE id=?")
@@ -962,7 +991,7 @@ export function createApp({
                 if (!restaurant) fail(404, "식당을 찾을 수 없습니다.");
                 await db
                   .prepare(
-                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url),category=COALESCE(?,category) WHERE id=?",
+                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url),category=COALESCE(?,category),max_people=COALESCE(?,max_people) WHERE id=?",
                   )
                   .run(
                     name,
@@ -971,12 +1000,13 @@ export function createApp({
                     body.listed ? 1 : 0,
                     naverUrl,
                     category,
+                    maxPeople,
                     body.id,
                   );
               } else
                 await db
                   .prepare(
-                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,category,access_token) VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,category,max_people,access_token) VALUES (?,?,?,?,?,?,?,?)",
                   )
                   .run(
                     name,
@@ -985,6 +1015,7 @@ export function createApp({
                     body.listed ? 1 : 0,
                     naverUrl || "",
                     category || "",
+                    maxPeople ?? 0,
                     token(),
                   );
               return send(200, { ok: true });

@@ -212,8 +212,9 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
     0,
   );
   await expect(restaurant).toHaveURL(/\/restaurant$/);
-  // The only input on the restaurant page is its own menu manager.
-  await expect(restaurant.locator("form")).toHaveCount(1);
+  // The restaurant page only edits its own people limit and menu.
+  await expect(restaurant.locator("form")).toHaveCount(2);
+  await expect(restaurant.locator("#restaurant-limit-form")).toBeVisible();
   await expect(restaurant.locator("#restaurant-menu-form")).toBeVisible();
   await restaurant.screenshot({
     path: ".local/screenshots/restaurant.png",
@@ -593,6 +594,12 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  await restaurant.getByLabel("최대 인원").fill("1");
+  await restaurant.getByRole("button", { name: "인원 제한 저장" }).click();
+  await expect(restaurant.locator(".limit-now")).toContainText("최대 1명");
+  await expect(restaurant.locator(".count")).toContainText("1명 / 1명");
+  await page.getByRole("button", { name: "오늘의 식당" }).click();
+  await expect(card.locator(".capacity")).toContainText("/ 최대 1명");
   await restaurant.screenshot({
     path: ".local/screenshots/restaurant-orders.png",
     fullPage: true,
