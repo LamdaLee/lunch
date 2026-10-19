@@ -1676,3 +1676,35 @@ dialog > p {
   font: inherit;
   font-size: 15px;
 }
+.request-form {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.request-form .field {
+  margin: 0;
+}
+.saved-request {
+  margin-top: 8px;
+}
+.restaurant-orders tr.has-request td {
+  border-bottom: 0;
+}
+.order-request td {
+  padding-top: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+.request-label {
+  display: inline-block;
+  background: var(--rose);
+  color: var(--red);
+  font-weight: 700;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 4px;
+}
+.restaurant-orders tr:not(.order-request) > :not(:first-child) {
+  white-space: nowrap;
+}

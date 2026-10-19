@@ -349,3 +349,78 @@ test("학생이 메뉴를 직접 적어 예약하고 식당은 직접 입력으�
   );
   assert.equal(overview.find((r) => r.name === "테스트강사").menu, null);
 });
+
+test("식당에 요청사항 전달: 같은 식당 안에서는 유지, 식당을 바꾸면 초기화", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=2")
+      .get()
+  ).access_token;
+  const ax = await app.login("AX학생");
+  const request = (cookie, value) =>
+    app.request("/choice/request", {
+      method: "POST",
+      cookie,
+      body: { request: value },
+    });
+  assert.equal((await request(ax, "계란 빼주세요")).status, 404);
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 2 },
+  });
+  assert.equal((await request(ax, "x".repeat(101))).status, 400);
+  assert.equal(
+    (await request(ax, " SF학생, 테스트강사 같이 갑니다. 계란 빼주세요 "))
+      .status,
+    200,
+  );
+  let page = (await app.request("/restaurant?token=" + token)).data;
+  assert.deepEqual(page.orders, [
+    {
+      name: "AX학생",
+      track: "AX",
+      menu: null,
+      price: null,
+      request: "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+      custom: false,
+    },
+  ]);
+  // Changing only the menu keeps the request.
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 2, menuNote: "비빔국수" },
+  });
+  page = (await app.request("/restaurant?token=" + token)).data;
+  assert.equal(page.orders[0].menu, "비빔국수");
+  assert.equal(page.orders[0].custom, true);
+  assert.equal(
+    page.orders[0].request,
+    "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+  );
+  const admin = await app.login("테스트관리자");
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: admin })).data
+      .reservations[0].request,
+    "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+  );
+  // Moving to another restaurant drops the request meant for the old one.
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 3 },
+  });
+  assert.equal(
+    (await app.request("/dashboard", { cookie: ax })).data.reservation.request,
+    "",
+  );
+  assert.equal(
+    (await app.request("/restaurant?token=" + token)).data.orders.length,
+    0,
+  );
+  app.setTime("2026-10-12T12:40:00+09:00");
+  assert.equal((await request(ax, "늦은 요청")).status, 409);
+});

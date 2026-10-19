@@ -569,6 +569,11 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await expect(card.getByLabel("메뉴 직접 적기")).toHaveValue(
     "제육 곱빼기, 계란후라이 추가",
   );
+  await card.getByLabel("식당에 전할 요청사항").fill("3명 같이 가요. 계란 빼주세요");
+  await card.getByRole("button", { name: "요청사항 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "3명 같이 가요. 계란 빼주세요",
+  );
   await page.screenshot({
     path: ".local/screenshots/custom-menu-card.png",
     fullPage: false,
@@ -579,6 +584,9 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await expect(orders).toContainText("AX학생");
   await expect(orders).toContainText("제육 곱빼기, 계란후라이 추가");
   await expect(orders).toContainText("직접 입력");
+  await expect(orders.locator(".order-request")).toContainText(
+    "3명 같이 가요. 계란 빼주세요",
+  );
   await expect(orders).not.toContainText("ax001");
   expect(
     await restaurant.evaluate(
