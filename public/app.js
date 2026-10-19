@@ -125,6 +125,7 @@ function scrollChatToEnd() {
   if (list) list.scrollTop = list.scrollHeight;
 }
 let refreshTimer, toastTimer, notificationTimer, chatTimer, restaurantToken;
+let restaurantMenu = [];
 async function api(path, method = "GET", body) {
   const response = await fetch(`/api${path}`, {
     method,
@@ -766,6 +767,7 @@ async function renderRestaurant() {
   const data = await api(
     `/restaurant?token=${encodeURIComponent(restaurantToken)}`,
   );
+  restaurantMenu = data.menuItems;
   const menuCounts = data.menuItems
     .map((item) => ({
       ...item,
@@ -778,7 +780,7 @@ async function renderRestaurant() {
   if (customCount) menuCounts.push({ name: "직접 입력", count: customCount });
   const orders = `<section class="side-card restaurant-orders"><div class="section-head"><h2>오늘 메뉴 예약·요청 명단</h2><span class="pill ${data.orders.length ? "red" : "gray"}">${data.orders.length}명</span></div>${menuCounts.length || requestCount ? `<div class="track-counts">${menuCounts.map((m) => `<span>${esc(m.name)} <b>${m.count}개</b></span>`).join("")}${requestCount ? `<span>요청사항 <b>${requestCount}건</b></span>` : ""}</div>` : ""}${data.orders.length ? `<div class="table-wrap"><table><thead><tr><th>메뉴</th><th>이름</th><th>구분</th></tr></thead><tbody>${data.orders.map((o) => `<tr class="${o.request ? "has-request" : ""}"><td>${o.menu ? `<b>${esc(o.menu)}</b>${o.custom ? ' <span class="pill gray">직접 입력</span>' : ""}${o.price ? `<br><small class="muted">${won(o.price)}</small>` : ""}` : '<span class="muted">메뉴 미정</span>'}</td><td>${esc(o.name)}</td><td>${esc(trackName(o.track))}</td></tr>${o.request ? `<tr class="order-request"><td colspan="3"><span class="request-label">요청</span> ${esc(o.request)}</td></tr>` : ""}`).join("")}</tbody></table></div>` : `<p class="muted">${data.menuItems.length ? "아직 메뉴를 예약한 사람이 없습니다." : "손님이 직접 적은 메뉴나, 아래에서 등록한 메뉴로 예약하면 여기에 표시됩니다."}</p>`}<p class="footnote">낮 12시 40분 마감 전까지 손님이 메뉴를 바꾸거나 취소할 수 있습니다. 손님이 남긴 요청사항(함께 오는 사람, 빼 달라는 재료 등)은 이름 아래 ‘요청’으로 표시됩니다. 메뉴와 요청 없이 방문 예정만 공유한 사람은 위 인원에만 포함됩니다.</p></section>`;
   const limitManager = `<section class="side-card restaurant-limit"><h2>하루 최대 인원</h2><p class="footnote">정원이 차면 학생 화면에서 이 식당을 더 고를 수 없어요. 이미 선택한 사람은 그대로 유지됩니다. 0을 넣으면 제한이 없어요.</p><p class="limit-now">현재 · <b>${data.restaurant.max_people ? `최대 ${data.restaurant.max_people}명` : "제한 없음"}</b></p><form id="restaurant-limit-form" class="inline-form"><label class="field">최대 인원<input name="maxPeople" type="number" min="0" max="500" step="1" inputmode="numeric" required value="${data.restaurant.max_people}"></label><button class="btn" type="submit">인원 제한 저장</button></form><p class="form-error" role="alert"></p></section>`;
-  const menuManager = `<section class="side-card restaurant-menu"><h2>예약 메뉴 관리</h2><p class="footnote">등록한 메뉴는 학생 화면에 바로 표시되고, 손님은 이 중 하나를 고르거나 메뉴를 직접 적어 예약합니다. 메뉴가 많다면 대표 메뉴만 등록해도 됩니다.</p>${data.menuItems.length ? `<ul class="menu-items">${data.menuItems.map((m) => `<li><span><b>${esc(m.name)}</b>${m.price ? ` <small class="muted">${won(m.price)}</small>` : ""}</span><button class="btn ghost small" data-action="menu-remove" data-id="${m.id}" aria-label="${esc(m.name)} 삭제">삭제</button></li>`).join("")}</ul>` : '<p class="muted">등록된 메뉴가 없습니다.</p>'}<form id="restaurant-menu-form" class="inline-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" placeholder="예: 제육덮밥"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" placeholder="예: 9000"></label><button class="btn" type="submit">메뉴 추가</button></form><p class="form-error" role="alert"></p></section>`;
+  const menuManager = `<section class="side-card restaurant-menu"><h2>예약 메뉴 관리</h2><p class="footnote">등록한 메뉴는 학생 화면에 바로 표시되고, 손님은 이 중 하나를 고르거나 메뉴를 직접 적어 예약합니다. 메뉴가 많다면 대표 메뉴만 등록해도 됩니다. ‘수정’으로 이름과 가격을 고칠 수 있어요.</p>${data.menuItems.length ? `<ul class="menu-items">${data.menuItems.map((m) => `<li><span><b>${esc(m.name)}</b>${m.price ? ` <small class="muted">${won(m.price)}</small>` : ""}</span><span class="table-actions"><button class="btn secondary small" data-action="menu-edit" data-id="${m.id}" aria-label="${esc(m.name)} 수정">수정</button><button class="btn ghost small" data-action="menu-remove" data-id="${m.id}" aria-label="${esc(m.name)} 삭제">삭제</button></span></li>`).join("")}</ul>` : '<p class="muted">등록된 메뉴가 없습니다.</p>'}<form id="restaurant-menu-form" class="inline-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" placeholder="예: 제육덮밥"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" placeholder="예: 9000"></label><button class="btn" type="submit">메뉴 추가</button></form><p class="form-error" role="alert"></p></section>`;
   const updated = new Intl.DateTimeFormat("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -1017,6 +1019,34 @@ document.addEventListener("click", async (event) => {
           "삭제",
         );
         break;
+      case "menu-edit": {
+        const item = restaurantMenu.find((m) => m.id === id);
+        if (!item) break;
+        modal(
+          `<h2>메뉴 수정</h2><p>이름이나 가격을 고치면 이미 이 메뉴로 예약한 사람의 명단에도 함께 반영돼요. 전혀 다른 메뉴로 바꾸려면 삭제한 뒤 새로 추가해주세요.</p><form id="menu-edit-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" value="${esc(item.name)}"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" value="${item.price || ""}"></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="btn secondary" type="button" data-action="close-modal">닫기</button><button class="btn" type="submit">저장하기</button></div></form>`,
+        );
+        document.querySelector("#menu-edit-form").onsubmit = async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.target),
+            button = event.target.querySelector("[type=submit]");
+          button.disabled = true;
+          try {
+            await api("/restaurant/menu", "POST", {
+              token: restaurantToken,
+              id,
+              name: form.get("name"),
+              price: Number(form.get("price") || 0),
+            });
+            dialog.close();
+            await renderRestaurant();
+            toast("메뉴를 수정했어요.");
+          } catch (e) {
+            event.target.querySelector(".form-error").textContent = e.message;
+            button.disabled = false;
+          }
+        };
+        break;
+      }
       case "menu-remove":
         confirmAction(
           "메뉴를 삭제할까요?",

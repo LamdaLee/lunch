@@ -424,3 +424,65 @@ test("식당에 요청사항 전달: 같은 식당 안에서는 유지, 식당�
   app.setTime("2026-10-12T12:40:00+09:00");
   assert.equal((await request(ax, "늦은 요청")).status, 409);
 });
+
+test("식당은 자기 메뉴만 수정할 수 있고 기존 예약 명단에도 반영", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const token = async (id) =>
+    (
+      await app.db
+        .prepare("SELECT access_token FROM restaurants WHERE id=?")
+        .get(id)
+    ).access_token;
+  const mine = await token(1),
+    other = await token(2);
+  const menu = (body) =>
+    app.request("/restaurant/menu", { method: "POST", body });
+  await menu({ token: mine, name: "제육덮밥", price: 9000 });
+  const item = (await app.request("/restaurant?token=" + mine)).data
+    .menuItems[0];
+  const ax = await app.login("AX학생");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 1, menuItemId: item.id },
+  });
+  assert.equal(
+    (await menu({ token: other, id: item.id, name: "가로채기", price: 1 }))
+      .status,
+    404,
+  );
+  assert.equal(
+    (await menu({ token: mine, id: item.id, name: "", price: 9000 })).status,
+    400,
+  );
+  assert.equal(
+    (await menu({ token: mine, id: "1", name: "제육", price: 9000 })).status,
+    400,
+  );
+  assert.equal(
+    (await menu({ token: mine, id: item.id, name: "제육볶음 덮밥", price: 9500 }))
+      .status,
+    200,
+  );
+  const page = (await app.request("/restaurant?token=" + mine)).data;
+  assert.deepEqual(
+    page.menuItems.map((m) => [m.id, m.name, m.price]),
+    [[item.id, "제육볶음 덮밥", 9500]],
+  );
+  assert.equal(page.orders[0].menu, "제육볶음 덮밥");
+  assert.equal(
+    (await app.request("/dashboard", { cookie: ax })).data.reservation
+      .menu_price,
+    9500,
+  );
+  await app.request("/restaurant/menu/remove", {
+    method: "POST",
+    body: { token: mine, id: item.id },
+  });
+  assert.equal(
+    (await menu({ token: mine, id: item.id, name: "되살리기", price: 0 }))
+      .status,
+    404,
+  );
+});

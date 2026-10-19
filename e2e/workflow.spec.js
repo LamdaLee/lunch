@@ -533,6 +533,20 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await restaurant.getByLabel("메뉴 이름").fill("김치찌개");
   await restaurant.getByRole("button", { name: "메뉴 추가" }).click();
   await expect(restaurant.locator(".menu-items li")).toHaveCount(2);
+  await restaurant.getByRole("button", { name: "김치찌개 수정" }).click();
+  await restaurant.locator("#menu-edit-form [name=name]").fill("김치찌개 정식");
+  await restaurant.locator("#menu-edit-form [name=price]").fill("8500");
+  await restaurant.getByRole("button", { name: "저장하기" }).click();
+  await expect(restaurant.locator(".menu-items")).toContainText(
+    "김치찌개 정식 8,500원",
+  );
+  await restaurant.getByRole("button", { name: "김치찌개 정식 수정" }).click();
+  await restaurant.locator("#menu-edit-form [name=name]").fill("김치찌개");
+  await restaurant.locator("#menu-edit-form [name=price]").fill("");
+  await restaurant.getByRole("button", { name: "저장하기" }).click();
+  await expect(
+    restaurant.getByRole("button", { name: "김치찌개 수정" }),
+  ).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
