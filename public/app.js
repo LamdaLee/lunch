@@ -12,6 +12,8 @@ const state = {
   notificationMeta: null,
   menuChoice: {},
   menuNote: {},
+  chat: null,
+  chatDraft: "",
 };
 const esc = (value) =>
   String(value ?? "").replace(
@@ -70,7 +72,58 @@ function commentList(post) {
   const comments = post.comments || [];
   return `<section class="comments" aria-label="댓글 ${comments.length}개"><h4>댓글 <span class="muted">${comments.length}</span></h4>${comments.length ? `<ul class="comment-list">${comments.map((c) => `<li class="comment"><div class="comment-top"><b>${esc(c.name)}</b><span class="muted">${esc(trackName(c.track))} · <time datetime="${esc(c.created_at)}">${shortTime(c.created_at)}</time></span>${c.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-comment" data-id="${c.id}" aria-label="댓글 삭제">삭제</button>` : ""}</div><p class="comment-body">${esc(c.body)}</p></li>`).join("")}</ul>` : ""}<form class="comment-form" data-post="${post.id}"><label class="sr-only" for="comment-${post.id}">댓글 입력</label><input id="comment-${post.id}" name="body" required maxlength="500" placeholder="댓글을 남겨주세요"><button class="btn small" type="submit">등록</button></form></section>`;
 }
-let refreshTimer, toastTimer, notificationTimer, restaurantToken;
+function chatItems() {
+  const messages = state.chat?.messages || [];
+  if (!messages.length)
+    return `<li class="chat-empty">${state.chat?.open ? "첫 메시지를 남겨보세요. 오늘 나눈 대화만 보여요." : "아직 오늘 대화가 없어요."}</li>`;
+  return messages
+    .map(
+      (m) =>
+        `<li class="chat-message ${m.user_id === state.user.id ? "mine" : ""}"><div class="chat-meta"><b>${esc(m.name)}</b><span class="muted">${esc(trackName(m.track))} · <time datetime="${esc(m.created_at)}">${new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(m.created_at))}</time></span>${m.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-chat" data-id="${m.id}" aria-label="메시지 삭제">삭제</button>` : ""}</div><p class="chat-body">${esc(m.body)}</p></li>`,
+    )
+    .join("");
+}
+function chatPanel() {
+  const open = state.chat?.open;
+  return `<section class="panel chat-panel" id="chat-panel" aria-label="오늘의 채팅"><div class="section-head"><div><h2>오늘의 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 오늘 나눈 대화만 표시돼요.</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "채팅 중 · 13:00까지" : "09:00–13:00 이용"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "채팅은 오전 9시부터 오후 1시까지 열려요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
+}
+function updateChatList() {
+  const list = document.querySelector("#chat-list");
+  if (!list) return;
+  const nearBottom =
+    list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  list.innerHTML = chatItems();
+  if (nearBottom) list.scrollTop = list.scrollHeight;
+}
+async function loadChat(full = false) {
+  const last = state.chat?.messages.at(-1)?.id ?? 0;
+  const data = await api(full || !state.chat ? "/chat" : `/chat?after=${last}`);
+  const wasOpen = state.chat?.open;
+  if (full || !state.chat || state.chat.day !== data.day)
+    state.chat = { day: data.day, open: data.open, messages: data.messages };
+  else {
+    const removed = new Set(data.deletedIds);
+    state.chat = {
+      ...state.chat,
+      open: data.open,
+      messages: [
+        ...state.chat.messages.filter((m) => !removed.has(m.id)),
+        ...data.messages,
+      ],
+    };
+  }
+  if (state.tab !== "today") return;
+  if (wasOpen !== undefined && wasOpen !== data.open) {
+    const panel = document.querySelector("#chat-panel");
+    if (panel) panel.outerHTML = chatPanel();
+    scrollChatToEnd();
+  } else updateChatList();
+}
+function scrollChatToEnd() {
+  const list = document.querySelector("#chat-list");
+  if (list) list.scrollTop = list.scrollHeight;
+}
+let refreshTimer, toastTimer, notificationTimer, chatTimer, restaurantToken;
 async function api(path, method = "GET", body) {
   const response = await fetch(`/api${path}`, {
     method,
@@ -148,6 +201,9 @@ function footer() {
 function renderAuth(setupNeeded = false, setupAvailable = false) {
   clearInterval(refreshTimer);
   clearInterval(notificationTimer);
+  clearInterval(chatTimer);
+  state.chat = null;
+  state.chatDraft = "";
   state.notificationMeta = null;
   state.inbox = null;
   root.innerHTML = `${header()}<main class="auth-layout"><section class="auth-story"><div><span class="eyebrow">A LITTLE BREAK, TOGETHER</span><h1>오늘 점심,<br>조금 더 여유롭게.</h1><p>어디로 갈지 고민하는 시간은 줄이고,<br>함께 먹는 즐거움은 늘려요.</p></div><div class="auth-art" aria-hidden="true">🍱</div><div class="small-note"><span>09:00 선택 시작</span><span>12:40 마감</span><span>12:50 점심</span></div></section><section class="auth-form"><span class="eyebrow">WELCOME TO LUNCHPASS</span><h2>반가워요! 👋</h2><p>학번으로 로그인하고 오늘의 식당을 골라보세요.</p>${setupNeeded ? `<div class="notice">최초 관리자 설정이 필요합니다.${setupAvailable ? " 아래 버튼으로 관리자 계정을 만들어주세요." : " 운영진이 서버에서 초기 설정을 완료하면 이용할 수 있어요."}</div>${setupAvailable ? '<button class="btn full" data-action="setup">최초 관리자 설정</button>' : ""}` : ""}<form id="auth-form"><label class="field">학번 / 로그인 ID<input name="loginId" autocomplete="username" required maxlength="40" placeholder="학번 또는 운영진의 로그인 ID"></label><label class="field">비밀번호<input name="password" type="password" autocomplete="current-password" required minlength="4" maxlength="128" placeholder="처음에는 전달받은 초기 비밀번호"></label><p class="form-error" role="alert" id="auth-error"></p><button class="btn full" type="submit" ${setupNeeded ? "disabled" : ""}>로그인 <span aria-hidden="true">→</span></button></form><p class="footnote" style="margin-top:25px">처음 이용하나요? 운영진에게 학번과 초기 비밀번호를 받아주세요.<br>첫 로그인에서 내 비밀번호로 변경할 수 있어요.</p></section></main>`;
@@ -155,6 +211,7 @@ function renderAuth(setupNeeded = false, setupAvailable = false) {
 function renderFirstPassword() {
   clearInterval(refreshTimer);
   clearInterval(notificationTimer);
+  clearInterval(chatTimer);
   root.innerHTML = `${header()}<main class="restaurant-view"><section class="panel"><span class="eyebrow">YOUR ACCOUNT, YOUR PASSWORD</span><h2 style="margin-top:10px">${esc(state.user.name)} 님, 반가워요!</h2><p class="muted" style="margin:12px 0 25px">처음 로그인했거나 비밀번호가 초기화되었어요.<br>이용하기 전에 나만의 비밀번호로 바꿔주세요.</p><form id="first-password-form"><label class="field">초기 비밀번호<input name="current" type="password" required autocomplete="current-password" maxlength="128"></label><label class="field">새 비밀번호<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="8자 이상, 초기 비밀번호와 다르게"></label><label class="field">새 비밀번호 확인<input name="confirm" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label><p class="form-error" id="first-password-error" role="alert"></p><button class="btn full" type="submit">비밀번호 변경하고 시작하기 →</button></form></section></main>`;
 }
 async function afterLogin() {
@@ -245,13 +302,20 @@ function renderToday() {
     })
     .join("");
   shell(
-    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:40</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="notice plan-notice"><b>식당 선택은 좌석 예약이 아닌 방문 예정 공유입니다.</b><br>좌석이 확보되지는 않습니다. 만석이면 다른 제휴 식당에서 식사한 뒤 ‘내 식사 기록’을 수정해주세요.</div><button class="mission-banner" data-tab="missions"><span><b>🎁 간식 쿠폰 이벤트</b><small>이벤트별 참여 조건과 쿠폰을 확인하세요</small></span><span>${state.dashboard.missionEvent ? "참여하기 →" : "내 신청 확인 →"}</span></button><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div>${reservation.menu ? `<div class="detail-line"><span>예약 메뉴</span><b>${esc(menuLabel({ name: reservation.menu, price: reservation.menu_price }))}</b></div>` : ""}<div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">방문 예정 정보를 공유했어요. 자리는 확보되지 않으니 종이 식권을 가지고 식당 상황을 확인해주세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button><button class="btn ghost full small" data-tab="history">실제 식사 기록 수정 →</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시 40분에 선택 마감</b><small>변경·취소도 12시 40분 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
+    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:40</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="notice plan-notice"><b>식당 선택은 좌석 예약이 아닌 방문 예정 공유입니다.</b><br>좌석이 확보되지는 않습니다. 만석이면 다른 제휴 식당에서 식사한 뒤 ‘내 식사 기록’을 수정해주세요.</div>${chatPanel()}<button class="mission-banner" data-tab="missions"><span><b>🎁 간식 쿠폰 이벤트</b><small>이벤트별 참여 조건과 쿠폰을 확인하세요</small></span><span>${state.dashboard.missionEvent ? "참여하기 →" : "내 신청 확인 →"}</span></button><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div>${reservation.menu ? `<div class="detail-line"><span>예약 메뉴</span><b>${esc(menuLabel({ name: reservation.menu, price: reservation.menu_price }))}</b></div>` : ""}<div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">방문 예정 정보를 공유했어요. 자리는 확보되지 않으니 종이 식권을 가지고 식당 상황을 확인해주세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button><button class="btn ghost full small" data-tab="history">실제 식사 기록 수정 →</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시 40분에 선택 마감</b><small>변경·취소도 12시 40분 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
   );
 }
 async function loadToday() {
-  state.dashboard = await api("/dashboard");
+  const [dashboard] = await Promise.all([
+    api("/dashboard"),
+    loadChat(true).catch(() => {}),
+  ]);
+  state.dashboard = dashboard;
   state.user = state.dashboard.user;
-  if (state.tab === "today") renderToday();
+  if (state.tab === "today") {
+    renderToday();
+    scrollChatToEnd();
+  }
 }
 async function loadHistory(before) {
   const data = await api(
@@ -931,6 +995,18 @@ document.addEventListener("click", async (event) => {
         );
         break;
       }
+      case "delete-chat":
+        confirmAction(
+          "메시지를 삭제할까요?",
+          "삭제한 메시지는 모든 사람의 화면에서 사라집니다.",
+          async () => {
+            await api(`/chat/${id}`, "DELETE", {});
+            await loadChat();
+            toast("메시지를 삭제했어요.");
+          },
+          "삭제",
+        );
+        break;
       case "menu-remove":
         confirmAction(
           "메뉴를 삭제할까요?",
@@ -1031,6 +1107,26 @@ document.addEventListener("submit", async (event) => {
     } catch (e) {
       toast(e.message);
       button.disabled = false;
+    }
+    return;
+  }
+  if (form.id === "chat-form") {
+    event.preventDefault();
+    const input = form.querySelector("input"),
+      button = form.querySelector("[type=submit]");
+    if (!input.value.trim()) return;
+    button.disabled = true;
+    try {
+      await api("/chat", "POST", { body: input.value });
+      input.value = "";
+      state.chatDraft = "";
+      await loadChat();
+      scrollChatToEnd();
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      button.disabled = !state.chat?.open;
+      input.focus();
     }
     return;
   }
@@ -1169,6 +1265,7 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("input", (event) => {
   if (event.target.classList.contains("menu-note"))
     state.menuNote[event.target.dataset.restaurant] = event.target.value;
+  if (event.target.id === "chat-input") state.chatDraft = event.target.value;
 });
 document.addEventListener("change", async (event) => {
   if (event.target.classList.contains("menu-select")) {
@@ -1207,6 +1304,23 @@ const hasDraft = () =>
 function startRefresh() {
   clearInterval(refreshTimer);
   clearInterval(notificationTimer);
+  clearInterval(chatTimer);
+  // Chat polls only while the room is open and the today tab is visible.
+  chatTimer = setInterval(async () => {
+    if (
+      document.hidden ||
+      !state.user ||
+      state.user.must_change ||
+      state.tab !== "today" ||
+      !state.chat?.open
+    )
+      return;
+    try {
+      await loadChat();
+    } catch {
+      // The next tick or the 30-second refresh retries quietly.
+    }
+  }, 4000);
   notificationTimer = setInterval(async () => {
     if (document.hidden || !state.user || state.user.must_change) return;
     try {

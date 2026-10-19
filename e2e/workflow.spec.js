@@ -612,3 +612,65 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("오늘의 채팅: 다른 사람 메시지가 몇 초 안에 보이고 삭제도 반영", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const other = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  other.on("pageerror", (e) => errors.push(e.message));
+  await other.goto(app.base);
+  await other.getByLabel("학번 / 로그인 ID", { exact: true }).fill("sf001");
+  await other.getByLabel("비밀번호", { exact: true }).fill(testPassword);
+  await other.getByRole("button", { name: "로그인", exact: true }).click();
+
+  // The chat sits between the page heading and the snack coupon banner.
+  const order = await page.evaluate(() => {
+    const top = (selector) =>
+      document.querySelector(selector).getBoundingClientRect().top;
+    return [top(".hero h1"), top("#chat-panel"), top(".mission-banner")];
+  });
+  expect(order[0]).toBeLessThan(order[1]);
+  expect(order[1]).toBeLessThan(order[2]);
+
+  await page.getByLabel("메시지 입력").fill("12:50에 파스토보이 가실 분?");
+  await page.getByRole("button", { name: "보내기" }).click();
+  await expect(page.locator(".chat-message.mine")).toContainText(
+    "12:50에 파스토보이 가실 분?",
+  );
+  await expect(other.locator(".chat-message")).toContainText(
+    "12:50에 파스토보이 가실 분?",
+    { timeout: 8000 },
+  );
+  await other.getByLabel("메시지 입력").fill("저요! <b>같이</b> 가요");
+  await other.getByLabel("메시지 입력").press("Enter");
+  await expect(page.locator(".chat-message").nth(1)).toHaveText(
+    /저요! <b>같이<\/b> 가요/,
+    { timeout: 8000 },
+  );
+  await expect(
+    other.locator(".chat-message").first().getByRole("button", { name: "메시지 삭제" }),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.locator("#chat-panel").screenshot({
+    path: ".local/screenshots/chat.png",
+  });
+
+  await page
+    .locator(".chat-message.mine")
+    .getByRole("button", { name: "메시지 삭제" })
+    .click();
+  await page.locator("#confirm-yes").click();
+  await expect(page.locator(".chat-message")).toHaveCount(1);
+  await expect(other.locator(".chat-message")).toHaveCount(1, {
+    timeout: 8000,
+  });
+  expect(errors).toEqual([]);
+  await other.close();
+});

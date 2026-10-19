@@ -748,6 +748,82 @@ export function createApp({
               .run(Number(postMatch[1]));
             return send(200, { ok: true });
           }
+          // One shared room per day; open 09:00–13:00 KST. Clients poll with ?after=<last id>.
+          const chatOpen = clock.minute >= 540 && clock.minute < 780;
+          if (path === "/api/chat" && req.method === "GET") {
+            const after = url.searchParams.get("after");
+            if (after !== null && !/^\d{1,12}$/.test(after))
+              fail(400, "요청 형식을 확인해주세요.");
+            const columns =
+              "SELECT c.id,c.user_id,c.body,c.created_at,u.name,u.track FROM chat_messages c JOIN users u ON u.id=c.user_id";
+            const messages =
+              after === null
+                ? (
+                    await db
+                      .prepare(
+                        `${columns} WHERE c.day=? AND c.deleted=0 ORDER BY c.id DESC LIMIT 200`,
+                      )
+                      .all(clock.day)
+                  ).reverse()
+                : await db
+                    .prepare(
+                      `${columns} WHERE c.day=? AND c.deleted=0 AND c.id>? ORDER BY c.id LIMIT 200`,
+                    )
+                    .all(clock.day, Number(after));
+            const deletedIds =
+              after === null
+                ? []
+                : (
+                    await db
+                      .prepare(
+                        "SELECT id FROM chat_messages WHERE day=? AND deleted=1 AND id<=?",
+                      )
+                      .all(clock.day, Number(after))
+                  ).map((row) => row.id);
+            return send(200, {
+              day: clock.day,
+              open: chatOpen,
+              messages,
+              deletedIds,
+            });
+          }
+          if (path === "/api/chat" && req.method === "POST") {
+            if (!chatOpen)
+              fail(409, "채팅은 오전 9시부터 오후 1시까지 이용할 수 있어요.");
+            const text = cleanText(body.body, 300, "메시지");
+            const recent = await db
+              .prepare(
+                "SELECT created_at FROM chat_messages WHERE user_id=? ORDER BY id DESC LIMIT 1",
+              )
+              .get(user.id);
+            if (
+              recent &&
+              now().getTime() - Date.parse(recent.created_at) < 2000
+            )
+              fail(429, "메시지는 2초 간격으로 보낼 수 있어요.");
+            const message = await db
+              .prepare(
+                "INSERT INTO chat_messages(user_id,day,body,created_at) VALUES (?,?,?,?) RETURNING id",
+              )
+              .get(user.id, clock.day, text, now().toISOString());
+            return send(201, { id: message.id });
+          }
+          const chatMatch = path.match(/^\/api\/chat\/(\d+)$/);
+          if (chatMatch && req.method === "DELETE") {
+            const message = await db
+              .prepare(
+                "SELECT user_id FROM chat_messages WHERE id=? AND deleted=0",
+              )
+              .get(Number(chatMatch[1]));
+            if (!message) fail(404, "메시지를 찾을 수 없습니다.");
+            if (message.user_id !== user.id && user.role !== "admin")
+              fail(403, "작성자 또는 운영진만 삭제할 수 있습니다.");
+            // Soft delete so polling clients learn which messages to remove.
+            await db
+              .prepare("UPDATE chat_messages SET deleted=1,body='' WHERE id=?")
+              .run(Number(chatMatch[1]));
+            return send(200, { ok: true });
+          }
           if (path.startsWith("/api/admin/")) {
             requireAdmin();
             if (path === "/api/admin/missions" && req.method === "GET")

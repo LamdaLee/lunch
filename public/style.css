@@ -1611,3 +1611,68 @@ dialog > p {
 .menu-note-field[hidden] {
   display: none;
 }
+.chat-panel {
+  margin-bottom: 18px;
+}
+.chat-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  background: var(--paper);
+  border-radius: 14px;
+}
+.chat-empty {
+  padding: 18px 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.chat-message {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  max-width: 85%;
+  justify-self: start;
+}
+.chat-message.mine {
+  background: var(--rose);
+  border-color: #f3d3cf;
+  justify-self: end;
+}
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.chat-meta .btn {
+  margin-left: auto;
+  padding: 2px 6px;
+}
+.chat-body {
+  margin: 3px 0 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+}
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 15px;
+}
