@@ -385,6 +385,7 @@ test("식당에 요청사항 전달: 같은 식당 안에서는 유지, 식당�
       menu: null,
       price: null,
       request: "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+      party: null,
       custom: false,
     },
   ]);

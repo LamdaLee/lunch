@@ -1711,3 +1711,44 @@ dialog > p {
 .limit-now {
   margin: 10px 0;
 }
+.party-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 6px;
+}
+.party-now {
+  margin: 0;
+  font-size: 14px;
+}
+.party-form fieldset {
+  border: 0;
+  margin: 0 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.party-form legend {
+  margin-bottom: 4px;
+}
+.party-group {
+  margin-top: 14px;
+}
+.party-group h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.party-tag {
+  display: inline-block;
+  background: var(--red);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  margin-right: 4px;
+}
+.party-tag.solo {
+  background: var(--muted);
+}

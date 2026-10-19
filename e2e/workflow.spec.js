@@ -703,3 +703,66 @@ test("오늘의 채팅: 다른 사람 메시지가 몇 초 안에 보이고 삭�
   expect(errors).toEqual([]);
   await other.close();
 });
+
+test("같은 식당을 고른 사람과 일행으로 묶으면 식당 화면에 일행별로 표시", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  const sf = await app.login("SF학생");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: sf,
+    body: { restaurantId: 1 },
+  });
+  const staff = await app.login("테스트강사");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: staff,
+    body: { restaurantId: 1 },
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  const box = card.locator(".party-box");
+  await expect(box).toContainText("SF학생");
+  await box.getByLabel("SF학생").check();
+  await box.getByRole("button", { name: "일행으로 묶기" }).click();
+  await expect(box.locator(".party-now")).toContainText("SF학생");
+  await expect(box.locator(".party-now")).toContainText("나 포함 2명");
+  await expect(page.locator(".reservation-summary")).toContainText("나 포함 2명");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await card.screenshot({ path: ".local/screenshots/party-card.png" });
+
+  const restaurant = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  const orders = restaurant.locator(".restaurant-orders");
+  await expect(orders.locator(".party-summary")).toContainText("일행 1팀");
+  await expect(orders.locator(".party-summary")).toContainText("혼자 1명");
+  const group = orders.locator(".party-group").first();
+  await expect(group).toContainText("일행 1");
+  await expect(group).toContainText("AX학생");
+  await expect(group).toContainText("SF학생");
+  await expect(orders.locator(".party-group.solo")).toContainText(
+    "메뉴·요청 없이 혼자 오는 손님 1명",
+  );
+  await orders.screenshot({ path: ".local/screenshots/party-orders.png" });
+
+  await box.getByRole("button", { name: "일행에서 나가기" }).click();
+  await expect(box.locator(".party-now")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await restaurant.close();
+});

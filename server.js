@@ -280,6 +280,17 @@ export function createApp({
             );
             return send(200, { ok: true });
           }
+          // A party is today's group at one restaurant; its id is a member's reservation id.
+          const tidyParty = async (partyId) => {
+            if (partyId === null || partyId === undefined) return;
+            const { n } = await db
+              .prepare("SELECT COUNT(*) n FROM reservations WHERE party_id=?")
+              .get(partyId);
+            if (Number(n) <= 1)
+              await db
+                .prepare("UPDATE reservations SET party_id=NULL WHERE party_id=?")
+                .run(partyId);
+          };
           const restaurantByToken = async (value) =>
             (typeof value === "string" &&
               (await db
@@ -379,7 +390,7 @@ export function createApp({
               orders: (
                 await db
                   .prepare(
-                    "SELECT u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'') ORDER BY r.menu_item_id IS NULL,mi.id,u.track,u.name",
+                    "SELECT u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request,r.party_id party FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'' OR r.party_id IS NOT NULL) ORDER BY r.party_id IS NULL,r.party_id,r.menu_item_id IS NULL,mi.id,u.track,u.name",
                   )
                   .all(restaurant.id, clock.day)
               ).map(({ menu_item_id, ...order }) => ({
@@ -520,7 +531,7 @@ export function createApp({
             const reservation =
               (await db
                 .prepare(
-                  "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,b.request,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
+                  "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,b.request,b.party_id,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
             const totals = await db
@@ -541,6 +552,21 @@ export function createApp({
                 .filter((item) => item.restaurant_id === restaurant.id)
                 .map(({ id, name, price }) => ({ id, name, price }));
             }
+            // People at my restaurant today, so I can form a party with them.
+            const companions = reservation
+              ? (
+                  await db
+                    .prepare(
+                      "SELECT u.id user_id,u.name,u.track,b.party_id FROM reservations b JOIN users u ON u.id=b.user_id WHERE b.restaurant_id=? AND b.day=? AND b.user_id<>? ORDER BY u.track,u.name",
+                    )
+                    .all(reservation.restaurant_id, clock.day, user.id)
+                ).map(({ party_id, ...person }) => ({
+                  ...person,
+                  inMyParty:
+                    reservation.party_id !== null &&
+                    party_id === reservation.party_id,
+                }))
+              : [];
             const start = new Date(`${clock.day}T00:00:00+09:00`);
             const end = new Date(start.getTime() + 86400000);
             const todayPosts = (
@@ -564,6 +590,7 @@ export function createApp({
               todayPosts,
               restaurants,
               reservation,
+              companions,
               choice: reservation,
               clock,
               user,
@@ -640,7 +667,7 @@ export function createApp({
                 fail(409, "이미 같은 식당·메뉴로 선택했어요.");
               await db
                 .prepare(
-                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id,menu_note) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET request=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.request ELSE '' END,restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id,menu_note=excluded.menu_note`,
+                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id,menu_note) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET request=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.request ELSE '' END,party_id=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.party_id ELSE NULL END,restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id,menu_note=excluded.menu_note`,
                 )
                 .run(
                   user.id,
@@ -650,6 +677,8 @@ export function createApp({
                   menuItemId,
                   menuNote,
                 );
+              if (existing && existing.restaurant_id !== restaurant.id)
+                await tidyParty(existing.party_id);
             }
             return send(200, { ok: true });
           }
@@ -674,9 +703,72 @@ export function createApp({
             req.method === "DELETE"
           ) {
             requireOpen();
+            const existing = await db
+              .prepare(
+                "SELECT party_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, clock.day);
             await db
               .prepare("DELETE FROM reservations WHERE user_id=? AND day=?")
               .run(user.id, clock.day);
+            await tidyParty(existing?.party_id);
+            return send(200, { ok: true });
+          }
+          if (path === "/api/party" && req.method === "POST") {
+            requireOpen();
+            if (
+              !Array.isArray(body.memberIds) ||
+              !body.memberIds.length ||
+              body.memberIds.length > 30 ||
+              !body.memberIds.every(Number.isInteger)
+            )
+              fail(400, "같이 가는 사람을 1~30명 골라주세요.");
+            const mine = await db
+              .prepare(
+                "SELECT id,restaurant_id,party_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, clock.day);
+            if (!mine) fail(404, "먼저 오늘 갈 식당을 선택해주세요.");
+            const members = [];
+            for (const memberId of new Set(body.memberIds)) {
+              if (memberId === user.id) continue;
+              const member = await db
+                .prepare(
+                  "SELECT id,party_id FROM reservations WHERE user_id=? AND day=? AND restaurant_id=?",
+                )
+                .get(memberId, clock.day, mine.restaurant_id);
+              if (!member)
+                fail(409, "같은 식당을 고른 사람만 일행으로 묶을 수 있어요.");
+              members.push(member);
+            }
+            if (!members.length) fail(400, "같이 가는 사람을 골라주세요.");
+            // Joining someone already in a party merges both parties into one.
+            const parties = [mine, ...members]
+              .map((r) => r.party_id)
+              .filter((id) => id !== null);
+            const partyId = parties[0] ?? mine.id;
+            for (const old of new Set(parties))
+              await db
+                .prepare("UPDATE reservations SET party_id=? WHERE party_id=?")
+                .run(partyId, old);
+            for (const r of [mine, ...members])
+              await db
+                .prepare("UPDATE reservations SET party_id=? WHERE id=?")
+                .run(partyId, r.id);
+            return send(200, { ok: true });
+          }
+          if (path === "/api/party/leave" && req.method === "POST") {
+            requireOpen();
+            const mine = await db
+              .prepare(
+                "SELECT id,party_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, clock.day);
+            if (!mine?.party_id) fail(404, "지금 속한 일행이 없어요.");
+            await db
+              .prepare("UPDATE reservations SET party_id=NULL WHERE id=?")
+              .run(mine.id);
+            await tidyParty(mine.party_id);
             return send(200, { ok: true });
           }
           const commentsOf = async (postIds) => {
