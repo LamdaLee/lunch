@@ -280,17 +280,60 @@ export function createApp({
             );
             return send(200, { ok: true });
           }
-          if (path === "/api/restaurant" && req.method === "GET") {
-            const restaurant = await db
+          const restaurantByToken = async (value) =>
+            (typeof value === "string" &&
+              (await db
+                .prepare(
+                  "SELECT id,name,description,menu FROM restaurants WHERE access_token=?",
+                )
+                .get(value))) ||
+            fail(404, "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.");
+          if (path === "/api/restaurant/menu" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            const name = cleanText(body.name, 40, "메뉴 이름");
+            const price = body.price ?? 0;
+            if (!Number.isInteger(price) || price < 0 || price > 100000)
+              fail(400, "가격은 0~100,000원 사이의 숫자로 입력해주세요.");
+            if (body.id !== undefined) {
+              if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
+              const result = await db
+                .prepare(
+                  "UPDATE menu_items SET name=?,price=? WHERE id=? AND restaurant_id=? AND active=1",
+                )
+                .run(name, price, body.id, restaurant.id);
+              if (!result.changes) fail(404, "메뉴를 찾을 수 없습니다.");
+              return send(200, { ok: true });
+            }
+            const { n } = await db
               .prepare(
-                "SELECT id,name,description,menu FROM restaurants WHERE access_token=?",
+                "SELECT COUNT(*) n FROM menu_items WHERE restaurant_id=? AND active=1",
               )
-              .get(url.searchParams.get("token") || "");
-            if (!restaurant)
-              fail(
-                404,
-                "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.",
-              );
+              .get(restaurant.id);
+            if (Number(n) >= 30)
+              fail(409, "메뉴는 최대 30개까지 등록할 수 있습니다.");
+            await db
+              .prepare(
+                "INSERT INTO menu_items(restaurant_id,name,price) VALUES (?,?,?)",
+              )
+              .run(restaurant.id, name, price);
+            return send(201, { ok: true });
+          }
+          if (path === "/api/restaurant/menu/remove" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
+            // Keep the row so existing reservations still show the menu name.
+            const result = await db
+              .prepare(
+                "UPDATE menu_items SET active=0 WHERE id=? AND restaurant_id=? AND active=1",
+              )
+              .run(body.id, restaurant.id);
+            if (!result.changes) fail(404, "메뉴를 찾을 수 없습니다.");
+            return send(200, { ok: true });
+          }
+          if (path === "/api/restaurant" && req.method === "GET") {
+            const restaurant = await restaurantByToken(
+              url.searchParams.get("token") || "",
+            );
             const totals = await db
               .prepare(
                 `SELECT u.track, COUNT(*) count FROM reservations r JOIN users u ON u.id=r.user_id WHERE r.restaurant_id=? AND r.day=? GROUP BY u.track`,
@@ -316,6 +359,17 @@ export function createApp({
                 0,
               ),
               changedAwayCount: changedAway.count,
+              menuItems: await db
+                .prepare(
+                  "SELECT id,name,price FROM menu_items WHERE restaurant_id=? AND active=1 ORDER BY id",
+                )
+                .all(restaurant.id),
+              // Only people who pre-ordered a menu are listed by name; login IDs stay hidden.
+              orders: await db
+                .prepare(
+                  "SELECT u.name,u.track,mi.name menu,mi.price FROM reservations r JOIN users u ON u.id=r.user_id JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? ORDER BY mi.id,u.track,u.name",
+                )
+                .all(restaurant.id, clock.day),
               clock,
             });
           }
@@ -450,7 +504,7 @@ export function createApp({
             const reservation =
               (await db
                 .prepare(
-                  "SELECT b.id,b.restaurant_id,r.name FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id WHERE b.user_id=? AND b.day=?",
+                  "SELECT b.id,b.restaurant_id,b.menu_item_id,r.name,mi.name menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
             const totals = await db
@@ -458,10 +512,19 @@ export function createApp({
                 "SELECT b.restaurant_id,u.track,COUNT(*) count FROM reservations b JOIN users u ON u.id=b.user_id WHERE b.day=? GROUP BY b.restaurant_id,u.track",
               )
               .all(clock.day);
-            for (const restaurant of restaurants)
+            const menuItems = await db
+              .prepare(
+                "SELECT id,restaurant_id,name,price FROM menu_items WHERE active=1 ORDER BY id",
+              )
+              .all();
+            for (const restaurant of restaurants) {
               restaurant.totals = totals
                 .filter((row) => row.restaurant_id === restaurant.id)
                 .map(({ track, count }) => ({ track, count }));
+              restaurant.menuItems = menuItems
+                .filter((item) => item.restaurant_id === restaurant.id)
+                .map(({ id, name, price }) => ({ id, name, price }));
+            }
             const start = new Date(`${clock.day}T00:00:00+09:00`);
             const end = new Date(start.getTime() + 86400000);
             const todayPosts = (
@@ -503,16 +566,46 @@ export function createApp({
                 .prepare("SELECT * FROM restaurants WHERE id=? AND listed=1")
                 .get(body.restaurantId);
               if (!restaurant) fail(404, "현재 선택할 수 없는 식당입니다.");
+              const menuItemId = body.menuItemId ?? null;
+              if (menuItemId !== null && !Number.isInteger(menuItemId))
+                fail(400, "메뉴를 확인해주세요.");
+              if (
+                menuItemId === null &&
+                (await db
+                  .prepare(
+                    "SELECT id FROM menu_items WHERE restaurant_id=? AND active=1 LIMIT 1",
+                  )
+                  .get(restaurant.id))
+              )
+                fail(400, "예약할 메뉴를 선택해주세요.");
+              if (
+                menuItemId !== null &&
+                !(await db
+                  .prepare(
+                    "SELECT id FROM menu_items WHERE id=? AND restaurant_id=? AND active=1",
+                  )
+                  .get(menuItemId, restaurant.id))
+              )
+                fail(404, "현재 예약할 수 없는 메뉴입니다.");
               const existing = await db
                 .prepare("SELECT * FROM reservations WHERE user_id=? AND day=?")
                 .get(user.id, clock.day);
-              if (existing?.restaurant_id === restaurant.id)
+              if (
+                existing?.restaurant_id === restaurant.id &&
+                (existing.menu_item_id ?? null) === menuItemId
+              )
                 fail(409, "이미 선택한 식당입니다.");
               await db
                 .prepare(
-                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at) VALUES (?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,created_at=excluded.created_at`,
+                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id) VALUES (?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id`,
                 )
-                .run(user.id, restaurant.id, clock.day, now().toISOString());
+                .run(
+                  user.id,
+                  restaurant.id,
+                  clock.day,
+                  now().toISOString(),
+                  menuItemId,
+                );
             }
             return send(200, { ok: true });
           }
@@ -526,14 +619,25 @@ export function createApp({
               .run(user.id, clock.day);
             return send(200, { ok: true });
           }
-          if (path === "/api/posts" && req.method === "GET")
-            return send(200, {
-              posts: await db
-                .prepare(
-                  "SELECT p.id,p.user_id,p.title,p.body,p.pinned,p.created_at,u.name,u.track,u.role FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.pinned DESC,p.id DESC LIMIT 100",
-                )
-                .all(),
-            });
+          const commentsOf = async (postIds) => {
+            if (!postIds.length) return [];
+            return db
+              .prepare(
+                `SELECT c.id,c.post_id,c.user_id,c.body,c.created_at,u.name,u.track FROM post_comments c JOIN users u ON u.id=c.user_id WHERE c.post_id IN (${postIds.map(() => "?").join(",")}) ORDER BY c.id`,
+              )
+              .all(...postIds);
+          };
+          if (path === "/api/posts" && req.method === "GET") {
+            const posts = await db
+              .prepare(
+                "SELECT p.id,p.user_id,p.title,p.body,p.pinned,p.created_at,u.name,u.track,u.role FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.pinned DESC,p.id DESC LIMIT 100",
+              )
+              .all();
+            const comments = await commentsOf(posts.map((p) => p.id));
+            for (const post of posts)
+              post.comments = comments.filter((c) => c.post_id === post.id);
+            return send(200, { posts });
+          }
           if (path === "/api/posts" && req.method === "POST") {
             const bodyText = cleanText(body.body, 1000, "게시글");
             const title =
@@ -571,7 +675,46 @@ export function createApp({
               )
               .get(Number(postMatch[1]));
             if (!post) fail(404, "게시글을 찾을 수 없습니다.");
+            post.comments = await commentsOf([post.id]);
             return send(200, { post });
+          }
+          const commentsMatch = path.match(/^\/api\/posts\/(\d+)\/comments$/);
+          if (commentsMatch && req.method === "POST") {
+            const postId = Number(commentsMatch[1]);
+            const commentText = cleanText(body.body, 500, "댓글");
+            if (
+              !(await db.prepare("SELECT id FROM posts WHERE id=?").get(postId))
+            )
+              fail(404, "게시글을 찾을 수 없습니다.");
+            const recent = await db
+              .prepare(
+                "SELECT created_at FROM post_comments WHERE user_id=? ORDER BY id DESC LIMIT 1",
+              )
+              .get(user.id);
+            if (
+              recent &&
+              now().getTime() - Date.parse(recent.created_at) < 5000
+            )
+              fail(429, "댓글은 5초 간격으로 작성할 수 있습니다.");
+            await db
+              .prepare(
+                "INSERT INTO post_comments(post_id,user_id,body,created_at) VALUES (?,?,?,?)",
+              )
+              .run(postId, user.id, commentText, now().toISOString());
+            return send(201, { ok: true });
+          }
+          const commentMatch = path.match(/^\/api\/comments\/(\d+)$/);
+          if (commentMatch && req.method === "DELETE") {
+            const comment = await db
+              .prepare("SELECT user_id FROM post_comments WHERE id=?")
+              .get(Number(commentMatch[1]));
+            if (!comment) fail(404, "댓글을 찾을 수 없습니다.");
+            if (comment.user_id !== user.id && user.role !== "admin")
+              fail(403, "작성자 또는 운영진만 삭제할 수 있습니다.");
+            await db
+              .prepare("DELETE FROM post_comments WHERE id=?")
+              .run(Number(commentMatch[1]));
+            return send(200, { ok: true });
           }
           if (postMatch && req.method === "DELETE") {
             const post = await db
@@ -580,6 +723,9 @@ export function createApp({
             if (!post) fail(404, "게시글을 찾을 수 없습니다.");
             if (post.user_id !== user.id && user.role !== "admin")
               fail(403, "작성자 또는 운영진만 삭제할 수 있습니다.");
+            await db
+              .prepare("DELETE FROM post_comments WHERE post_id=?")
+              .run(Number(postMatch[1]));
             await db
               .prepare("DELETE FROM posts WHERE id=?")
               .run(Number(postMatch[1]));
@@ -619,7 +765,7 @@ export function createApp({
                 .all(day);
               const reservations = await db
                 .prepare(
-                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
+                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,mi.name menu,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
                 )
                 .all(day);
               const users = await db
