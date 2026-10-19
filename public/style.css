@@ -1608,3 +1608,6 @@ dialog > p {
 .card-cancel {
   margin-top: 8px;
 }
+.menu-note-field[hidden] {
+  display: none;
+}

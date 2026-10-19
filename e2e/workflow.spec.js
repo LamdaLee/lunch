@@ -548,7 +548,7 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
     "제육덮밥 · 9,000원",
   );
   await card.getByLabel("예약할 메뉴").selectOption({ label: "김치찌개" });
-  await card.getByRole("button", { name: "예약 메뉴 변경" }).click();
+  await card.getByRole("button", { name: "예약 변경 저장" }).click();
   await expect(page.locator(".reservation-summary")).toContainText("김치찌개");
   await card.getByRole("button", { name: "한끼식당 선택 취소" }).click();
   await expect(page.locator(".reservation-summary")).toContainText(
@@ -558,11 +558,27 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await card.getByLabel("예약할 메뉴").selectOption({ label: "김치찌개" });
   await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
   await expect(card.locator(".card-cancel")).toBeVisible();
+  // Typed menus for restaurants with many dishes.
+  await expect(card.locator(".menu-note")).toBeHidden();
+  await card.getByLabel("예약할 메뉴").selectOption({ label: "직접 입력" });
+  await card.getByLabel("메뉴 직접 적기").fill("제육 곱빼기, 계란후라이 추가");
+  await card.getByRole("button", { name: "예약 변경 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "제육 곱빼기, 계란후라이 추가",
+  );
+  await expect(card.getByLabel("메뉴 직접 적기")).toHaveValue(
+    "제육 곱빼기, 계란후라이 추가",
+  );
+  await page.screenshot({
+    path: ".local/screenshots/custom-menu-card.png",
+    fullPage: false,
+  });
 
   await restaurant.getByRole("button", { name: "↻ 새로고침" }).click();
   const orders = restaurant.locator(".restaurant-orders");
   await expect(orders).toContainText("AX학생");
-  await expect(orders).toContainText("김치찌개");
+  await expect(orders).toContainText("제육 곱빼기, 계란후라이 추가");
+  await expect(orders).toContainText("직접 입력");
   await expect(orders).not.toContainText("ax001");
   expect(
     await restaurant.evaluate(

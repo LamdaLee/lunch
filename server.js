@@ -165,7 +165,7 @@ export function createApp({
                 409,
                 current.phase === "before"
                   ? "선택과 취소는 오전 9시부터 가능합니다."
-                  : "오늘 선택과 취소는 낮 12시에 마감되었습니다.",
+                  : "오늘 선택과 취소는 낮 12시 40분에 마감되었습니다.",
               );
           };
           const setSession = async (id) => {
@@ -365,11 +365,16 @@ export function createApp({
                 )
                 .all(restaurant.id),
               // Only people who pre-ordered a menu are listed by name; login IDs stay hidden.
-              orders: await db
-                .prepare(
-                  "SELECT u.name,u.track,mi.name menu,mi.price FROM reservations r JOIN users u ON u.id=r.user_id JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? ORDER BY mi.id,u.track,u.name",
-                )
-                .all(restaurant.id, clock.day),
+              orders: (
+                await db
+                  .prepare(
+                    "SELECT u.name,u.track,COALESCE(mi.name,r.menu_note) menu,mi.price,r.menu_item_id FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'') ORDER BY r.menu_item_id IS NULL,mi.id,u.track,u.name",
+                  )
+                  .all(restaurant.id, clock.day)
+              ).map(({ menu_item_id, ...order }) => ({
+                ...order,
+                custom: menu_item_id === null,
+              })),
               clock,
             });
           }
@@ -504,7 +509,7 @@ export function createApp({
             const reservation =
               (await db
                 .prepare(
-                  "SELECT b.id,b.restaurant_id,b.menu_item_id,r.name,mi.name menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
+                  "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
             const totals = await db
@@ -570,14 +575,24 @@ export function createApp({
               if (menuItemId !== null && !Number.isInteger(menuItemId))
                 fail(400, "메뉴를 확인해주세요.");
               if (
+                body.menuNote !== undefined &&
+                (typeof body.menuNote !== "string" ||
+                  body.menuNote.trim().length > 60)
+              )
+                fail(400, "직접 적는 메뉴는 60자 이내로 입력해주세요.");
+              // A registered menu wins over a typed note; never store both.
+              const menuNote =
+                menuItemId === null ? (body.menuNote || "").trim() : "";
+              if (
                 menuItemId === null &&
+                !menuNote &&
                 (await db
                   .prepare(
                     "SELECT id FROM menu_items WHERE restaurant_id=? AND active=1 LIMIT 1",
                   )
                   .get(restaurant.id))
               )
-                fail(400, "예약할 메뉴를 선택해주세요.");
+                fail(400, "예약할 메뉴를 고르거나 직접 적어주세요.");
               if (
                 menuItemId !== null &&
                 !(await db
@@ -592,12 +607,13 @@ export function createApp({
                 .get(user.id, clock.day);
               if (
                 existing?.restaurant_id === restaurant.id &&
-                (existing.menu_item_id ?? null) === menuItemId
+                (existing.menu_item_id ?? null) === menuItemId &&
+                (existing.menu_note || "") === menuNote
               )
-                fail(409, "이미 선택한 식당입니다.");
+                fail(409, "이미 같은 식당·메뉴로 선택했어요.");
               await db
                 .prepare(
-                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id) VALUES (?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id`,
+                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id,menu_note) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id,menu_note=excluded.menu_note`,
                 )
                 .run(
                   user.id,
@@ -605,6 +621,7 @@ export function createApp({
                   clock.day,
                   now().toISOString(),
                   menuItemId,
+                  menuNote,
                 );
             }
             return send(200, { ok: true });
@@ -765,7 +782,7 @@ export function createApp({
                 .all(day);
               const reservations = await db
                 .prepare(
-                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,mi.name menu,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
+                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
                 )
                 .all(day);
               const users = await db
