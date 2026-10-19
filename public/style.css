@@ -1752,3 +1752,53 @@ dialog > p {
 .party-tag.solo {
   background: var(--muted);
 }
+.reply-now {
+  margin-top: 6px;
+  font-size: 14px;
+}
+.reply-label {
+  display: inline-block;
+  background: #e7f3ee;
+  color: var(--green);
+  font-weight: 700;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 4px;
+}
+.reply-form {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.quick-replies {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.reply-input {
+  display: flex;
+  gap: 6px;
+}
+.reply-input input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+.restaurant-reply {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #e7f3ee;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.restaurant-reply b {
+  color: var(--green);
+  margin-right: 4px;
+}

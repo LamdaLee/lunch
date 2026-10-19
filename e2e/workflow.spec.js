@@ -766,3 +766,62 @@ test("같은 식당을 고른 사람과 일행으로 묶으면 식당 화면에 
   expect(errors).toEqual([]);
   await restaurant.close();
 });
+
+test("식당이 요청사항에 답하면 학생 화면에 식당 답변과 알림이 보임", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await card.getByLabel("식당에 전할 요청사항").fill("계란 빼주세요");
+  await card.getByRole("button", { name: "요청사항 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "계란 빼주세요",
+  );
+
+  const restaurant = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  restaurant.on("pageerror", (e) => errors.push(e.message));
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  const request = restaurant.locator(".order-request");
+  await expect(request).toContainText("계란 빼주세요");
+  await request.getByRole("button", { name: "확인했어요" }).click();
+  await expect(request.locator(".reply-now")).toContainText("확인했어요");
+  await request.getByLabel("AX학생 요청에 답변").fill("계란 빼 드릴게요");
+  await request.getByRole("button", { name: "보내기" }).click();
+  await expect(request.locator(".reply-now")).toContainText("계란 빼 드릴게요");
+  expect(
+    await restaurant.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await restaurant
+    .locator(".restaurant-orders")
+    .screenshot({ path: ".local/screenshots/reply-restaurant.png" });
+
+  await page.getByRole("button", { name: "↻ 새로고침" }).first().click();
+  await expect(page.locator("#toast")).toHaveText(
+    "식당에서 답변이 왔어요: 계란 빼 드릴게요",
+  );
+  await expect(card.locator(".restaurant-reply")).toContainText(
+    "계란 빼 드릴게요",
+  );
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "계란 빼 드릴게요",
+  );
+  await card.screenshot({ path: ".local/screenshots/reply-card.png" });
+  expect(errors).toEqual([]);
+  await restaurant.close();
+});

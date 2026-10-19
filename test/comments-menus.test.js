@@ -378,13 +378,14 @@ test("식당에 요청사항 전달: 같은 식당 안에서는 유지, 식당�
     200,
   );
   let page = (await app.request("/restaurant?token=" + token)).data;
-  assert.deepEqual(page.orders, [
+  assert.deepEqual(page.orders.map(({ id, ...order }) => order), [
     {
       name: "AX학생",
       track: "AX",
       menu: null,
       price: null,
       request: "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+      reply: "",
       party: null,
       custom: false,
     },

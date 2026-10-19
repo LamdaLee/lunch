@@ -340,6 +340,30 @@ export function createApp({
               .run(maxPeopleOf(body.maxPeople), restaurant.id);
             return send(200, { ok: true });
           }
+          if (path === "/api/restaurant/reply" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            // Restaurants can answer until lunch starts at 12:50.
+            if (clock.minute < 540 || clock.minute >= 770)
+              fail(409, "답변은 오전 9시부터 12시 50분까지 보낼 수 있어요.");
+            if (!Number.isInteger(body.reservationId))
+              fail(400, "답변할 요청을 확인해주세요.");
+            if (typeof body.reply !== "string" || body.reply.trim().length > 100)
+              fail(400, "답변은 100자 이내로 입력해주세요.");
+            const reply = body.reply.trim();
+            const result = await db
+              .prepare(
+                "UPDATE reservations SET reply=?,reply_at=? WHERE id=? AND restaurant_id=? AND day=? AND request<>''",
+              )
+              .run(
+                reply,
+                reply ? now().toISOString() : null,
+                body.reservationId,
+                restaurant.id,
+                clock.day,
+              );
+            if (!result.changes) fail(404, "답변할 요청을 찾을 수 없습니다.");
+            return send(200, { ok: true });
+          }
           if (path === "/api/restaurant/menu/remove" && req.method === "POST") {
             const restaurant = await restaurantByToken(body.token);
             if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
@@ -381,6 +405,7 @@ export function createApp({
                 0,
               ),
               changedAwayCount: changedAway.count,
+              replyOpen: clock.minute >= 540 && clock.minute < 770,
               menuItems: await db
                 .prepare(
                   "SELECT id,name,price FROM menu_items WHERE restaurant_id=? AND active=1 ORDER BY id",
@@ -390,7 +415,7 @@ export function createApp({
               orders: (
                 await db
                   .prepare(
-                    "SELECT u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request,r.party_id party FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'' OR r.party_id IS NOT NULL) ORDER BY r.party_id IS NULL,r.party_id,r.menu_item_id IS NULL,mi.id,u.track,u.name",
+                    "SELECT r.id,u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request,r.reply,r.party_id party FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'' OR r.party_id IS NOT NULL) ORDER BY r.party_id IS NULL,r.party_id,r.menu_item_id IS NULL,mi.id,u.track,u.name",
                   )
                   .all(restaurant.id, clock.day)
               ).map(({ menu_item_id, ...order }) => ({
@@ -531,7 +556,7 @@ export function createApp({
             const reservation =
               (await db
                 .prepare(
-                  "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,b.request,b.party_id,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
+                  "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,b.request,b.reply,b.reply_at,b.party_id,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
             const totals = await db
@@ -667,7 +692,7 @@ export function createApp({
                 fail(409, "이미 같은 식당·메뉴로 선택했어요.");
               await db
                 .prepare(
-                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id,menu_note) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET request=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.request ELSE '' END,party_id=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.party_id ELSE NULL END,restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id,menu_note=excluded.menu_note`,
+                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id,menu_note) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET request=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.request ELSE '' END,reply=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.reply ELSE '' END,reply_at=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.reply_at ELSE NULL END,party_id=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.party_id ELSE NULL END,restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id,menu_note=excluded.menu_note`,
                 )
                 .run(
                   user.id,
@@ -691,9 +716,15 @@ export function createApp({
               fail(400, "요청사항은 100자 이내로 입력해주세요.");
             const result = await db
               .prepare(
-                "UPDATE reservations SET request=? WHERE user_id=? AND day=?",
+                "UPDATE reservations SET reply=CASE WHEN request=? THEN reply ELSE '' END,reply_at=CASE WHEN request=? THEN reply_at ELSE NULL END,request=? WHERE user_id=? AND day=?",
               )
-              .run(body.request.trim(), user.id, clock.day);
+              .run(
+                body.request.trim(),
+                body.request.trim(),
+                body.request.trim(),
+                user.id,
+                clock.day,
+              );
             if (!result.changes)
               fail(404, "먼저 오늘 갈 식당을 선택해주세요.");
             return send(200, { ok: true });
