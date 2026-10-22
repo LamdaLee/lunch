@@ -825,3 +825,75 @@ test("식당이 요청사항에 답하면 학생 화면에 식당 답변과 알�
   expect(errors).toEqual([]);
   await restaurant.close();
 });
+
+test("사이드 메뉴를 여러 개 골라 예약하면 합계와 식권 초과 금액이 보이고 식당에도 표시", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  const restaurant = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  restaurant.on("pageerror", (e) => errors.push(e.message));
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  const addMenu = async (name, price, kind) => {
+    const form = restaurant.locator("#restaurant-menu-form");
+    await form.getByLabel("메뉴 이름").fill(name);
+    await form.getByLabel("가격").fill(String(price));
+    await form.getByLabel("종류").selectOption(kind);
+    await form.getByRole("button", { name: "메뉴 추가" }).click();
+    await expect(restaurant.locator(".menu-items")).toContainText(name);
+  };
+  await addMenu("제육덮밥", 9000, "main");
+  await addMenu("계란찜", 2000, "side");
+  await addMenu("콜라", 1500, "side");
+  await expect(
+    restaurant.locator(".menu-items li").filter({ hasText: "계란찜" }),
+  ).toContainText("사이드");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card
+    .getByLabel("예약할 메뉴")
+    .selectOption({ label: "제육덮밥 · 9,000원" });
+  await expect(card.locator(".price-total")).toHaveText(
+    "합계 9,000원 · 식권 한도 안",
+  );
+  await card.getByLabel("계란찜 · 2,000원").check();
+  await card.getByLabel("콜라 · 1,500원").check();
+  await expect(card.locator(".price-total")).toHaveText(
+    "합계 12,500원 · 식권 초과 1,500원은 직접 결제",
+  );
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "계란찜 · 2,000원, 콜라 · 1,500원",
+  );
+  // After reload the saved sides stay checked.
+  await expect(card.getByLabel("계란찜 · 2,000원")).toBeChecked();
+  await expect(card.locator(".price-total")).toHaveText(
+    "합계 12,500원 · 식권 초과 1,500원은 직접 결제",
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await card.screenshot({ path: ".local/screenshots/sides-card.png" });
+
+  await restaurant.getByRole("button", { name: "↻ 새로고침" }).click();
+  const orders = restaurant.locator(".restaurant-orders");
+  await expect(orders.locator(".order-sides")).toHaveText("+ 계란찜, 콜라");
+  await expect(orders.locator(".track-counts").nth(1)).toContainText(
+    "계란찜 1개",
+  );
+  await orders.screenshot({ path: ".local/screenshots/sides-orders.png" });
+  expect(errors).toEqual([]);
+  await restaurant.close();
+});

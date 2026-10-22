@@ -16,6 +16,7 @@ const state = {
   chatDraft: "",
   requestDraft: null,
   partyPick: new Set(),
+  sidePick: {},
 };
 const esc = (value) =>
   String(value ?? "").replace(
@@ -60,6 +61,24 @@ function foodVisual(restaurant) {
   return `<img class="food-photo" src="/food-categories.png" alt="${esc(restaurant.category)} 음식 종류 대표 이미지" decoding="async" style="left:-${(index % 4) * 100}%;transform:translateY(-${index < 4 ? 25 : 75}%)"><span class="food-caption">${esc(restaurant.category)} · 대표 이미지</span>`;
 }
 const won = (value) => Number(value).toLocaleString("ko-KR") + "원";
+const MEAL_TICKET = 11000;
+const priceText = (total) =>
+  total
+    ? `합계 ${won(total)} · ${total > MEAL_TICKET ? `식권 초과 ${won(total - MEAL_TICKET)}은 직접 결제` : "식권 한도 안"}`
+    : "";
+// Recomputes a card's total from the chosen main and the checked sides.
+function updateCardTotal(card) {
+  const target = card.querySelector(".price-total");
+  if (!target) return;
+  const main = card.querySelector(".menu-select")?.selectedOptions[0];
+  const total =
+    Number(main?.dataset.price || 0) +
+    [...card.querySelectorAll(".side-check:checked")].reduce(
+      (sum, box) => sum + Number(box.dataset.price || 0),
+      0,
+    );
+  target.textContent = priceText(total);
+}
 const menuLabel = (item) =>
   `${item.name}${item.price ? ` · ${won(item.price)}` : ""}`;
 const shortTime = (value) =>
@@ -284,7 +303,8 @@ function renderToday() {
   const cards = visible
     .map((r, i) => {
       const selected = reservation?.restaurant_id === r.id;
-      const menus = r.menuItems || [];
+      const menus = (r.menuItems || []).filter((m) => m.kind !== "side");
+      const sideItems = (r.menuItems || []).filter((m) => m.kind === "side");
       const open = clock.phase === "open";
       const savedNote =
         selected && !reservation.menu_item_id ? reservation.menu_note || "" : "";
@@ -292,6 +312,20 @@ function renderToday() {
         state.menuChoice[r.id] ??
         (selected ? reservation.menu_item_id || (savedNote ? "custom" : null) : null);
       const note = state.menuNote[r.id] ?? savedNote;
+      const pickedSides =
+        state.sidePick[r.id] ??
+        new Set(selected ? (reservation.sides || []).map((s) => s.id) : []);
+      const total =
+        (menus.find((m) => m.id === chosenMenu)?.price || 0) +
+        sideItems
+          .filter((m) => pickedSides.has(m.id))
+          .reduce((sum, m) => sum + m.price, 0);
+      const sidePicker = sideItems.length
+        ? `<fieldset class="side-pick"><legend>사이드 메뉴 <small>(여러 개 선택 가능)</small></legend>${sideItems.map((m) => `<label class="check"><input type="checkbox" class="side-check" data-restaurant="${r.id}" value="${m.id}" data-price="${m.price}" ${pickedSides.has(m.id) ? "checked" : ""} ${open ? "" : "disabled"}>${esc(menuLabel(m))}</label>`).join("")}</fieldset>`
+        : "";
+      const priceLine = [...menus, ...sideItems].some((m) => m.price)
+        ? `<p class="price-total" aria-live="polite">${priceText(total)}</p>`
+        : "";
       const canChangeMenu = selected && open;
       const full = !selected && r.max_people > 0 && r.count >= r.max_people;
       const companions = selected ? state.dashboard.companions || [] : [];
@@ -304,15 +338,15 @@ function renderToday() {
         `<label class="field menu-note-field" ${hidden ? "hidden" : ""}>${label}<input class="menu-note" data-restaurant="${r.id}" maxlength="60" value="${esc(note)}" placeholder="예: 까르보나라, 콜라 추가" ${open ? "" : "disabled"}></label>`;
       // Registered menus come first; "직접 입력" lets members type anything else.
       const menuPicker = menus.length
-        ? `<label class="field menu-pick">예약할 메뉴<select class="menu-select" data-restaurant="${r.id}" ${open ? "" : "disabled"}><option value="">메뉴를 골라주세요</option>${menus.map((m) => `<option value="${m.id}" ${m.id === chosenMenu ? "selected" : ""}>${esc(menuLabel(m))}</option>`).join("")}<option value="custom" ${chosenMenu === "custom" ? "selected" : ""}>직접 입력</option></select></label>${noteField("메뉴 직접 적기", chosenMenu !== "custom")}`
+        ? `<label class="field menu-pick">예약할 메뉴<select class="menu-select" data-restaurant="${r.id}" ${open ? "" : "disabled"}><option value="">메뉴를 골라주세요</option>${menus.map((m) => `<option value="${m.id}" data-price="${m.price}" ${m.id === chosenMenu ? "selected" : ""}>${esc(menuLabel(m))}</option>`).join("")}<option value="custom" ${chosenMenu === "custom" ? "selected" : ""}>직접 입력</option></select></label>${noteField("메뉴 직접 적기", chosenMenu !== "custom")}`
         : open || note
           ? noteField('예약할 메뉴 <small>(선택)</small>', false)
           : "";
-      return `<article class="restaurant-card ${selected ? "selected" : ""}"><div class="card-visual tone${i % 4} ${foodCategories.includes(r.category) ? "has-photo" : ""}">${foodVisual(r)}<span class="pill ${selected ? "red" : "gray"}">${selected ? "✓ 내 선택" : full ? "정원 마감" : `${r.count}명 예정`}</span></div><div class="card-body"><h3>${esc(r.name)}</h3><p class="desc">${esc(r.description || "함께 갈 사람 수를 보고 오늘의 식당을 골라요.")}</p>${r.menu ? `<div class="menu">추천 메뉴 · ${esc(r.menu)}</div>` : ""}${r.naver_url ? `<a class="btn secondary full small restaurant-naver" href="${esc(r.naver_url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(r.name)} 네이버에서 보기 (새 창)">네이버에서 보기 ↗</a>` : ""}${menuPicker}<div class="capacity"><span>오늘 갈 사람 <strong>${r.count}명</strong>${r.max_people ? ` / 최대 ${r.max_people}명` : ""}</span><span>12:50–14:00</span></div><p class="footnote">${r.totals.map((t) => `${esc(trackName(t.track))} ${t.count}명`).join(" · ") || "아직 선택한 사람이 없어요."}</p><button class="btn full ${(selected && !canChangeMenu) || full || clock.phase !== "open" ? "secondary" : ""}" data-action="reserve" data-id="${r.id}" ${(selected && !canChangeMenu) || full || clock.phase !== "open" ? "disabled" : ""}>${canChangeMenu ? "예약 변경 저장" : selected ? "✓ 오늘 내 선택" : full ? "정원 마감" : clock.phase !== "open" ? (clock.phase === "before" ? "09:00 선택 시작" : "오늘 선택 마감") : reservation ? "이 식당으로 변경" : "나도 여기 갈래요"}</button>${partyBox}${selected && clock.phase === "open" ? `<form class="request-form" id="request-form"><label class="field">식당에 전할 요청사항 <small>(선택)</small><input id="request-input" name="request" maxlength="100" value="${esc(state.requestDraft ?? reservation.request ?? "")}" placeholder="예: 3명 같이 가요. 계란 빼주세요."></label>${reservation.reply ? `<p class="restaurant-reply"><b>식당 답변</b> ${esc(reservation.reply)}</p>` : ""}<button class="btn secondary full small" type="submit">요청사항 저장</button></form><button class="btn ghost full small card-cancel" data-action="cancel" aria-label="${esc(r.name)} 선택 취소">선택 취소</button>` : selected && reservation.request ? `<p class="footnote saved-request">요청사항 · ${esc(reservation.request)}</p>${reservation.reply ? `<p class="restaurant-reply"><b>식당 답변</b> ${esc(reservation.reply)}</p>` : ""}` : ""}</div></article>`;
+      return `<article class="restaurant-card ${selected ? "selected" : ""}"><div class="card-visual tone${i % 4} ${foodCategories.includes(r.category) ? "has-photo" : ""}">${foodVisual(r)}<span class="pill ${selected ? "red" : "gray"}">${selected ? "✓ 내 선택" : full ? "정원 마감" : `${r.count}명 예정`}</span></div><div class="card-body"><h3>${esc(r.name)}</h3><p class="desc">${esc(r.description || "함께 갈 사람 수를 보고 오늘의 식당을 골라요.")}</p>${r.menu ? `<div class="menu">추천 메뉴 · ${esc(r.menu)}</div>` : ""}${r.naver_url ? `<a class="btn secondary full small restaurant-naver" href="${esc(r.naver_url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(r.name)} 네이버에서 보기 (새 창)">네이버에서 보기 ↗</a>` : ""}${menuPicker}${sidePicker}${priceLine}<div class="capacity"><span>오늘 갈 사람 <strong>${r.count}명</strong>${r.max_people ? ` / 최대 ${r.max_people}명` : ""}</span><span>12:50–14:00</span></div><p class="footnote">${r.totals.map((t) => `${esc(trackName(t.track))} ${t.count}명`).join(" · ") || "아직 선택한 사람이 없어요."}</p><button class="btn full ${(selected && !canChangeMenu) || full || clock.phase !== "open" ? "secondary" : ""}" data-action="reserve" data-id="${r.id}" ${(selected && !canChangeMenu) || full || clock.phase !== "open" ? "disabled" : ""}>${canChangeMenu ? "예약 변경 저장" : selected ? "✓ 오늘 내 선택" : full ? "정원 마감" : clock.phase !== "open" ? (clock.phase === "before" ? "09:00 선택 시작" : "오늘 선택 마감") : reservation ? "이 식당으로 변경" : "나도 여기 갈래요"}</button>${partyBox}${selected && clock.phase === "open" ? `<form class="request-form" id="request-form"><label class="field">식당에 전할 요청사항 <small>(선택)</small><input id="request-input" name="request" maxlength="100" value="${esc(state.requestDraft ?? reservation.request ?? "")}" placeholder="예: 3명 같이 가요. 계란 빼주세요."></label>${reservation.reply ? `<p class="restaurant-reply"><b>식당 답변</b> ${esc(reservation.reply)}</p>` : ""}<button class="btn secondary full small" type="submit">요청사항 저장</button></form><button class="btn ghost full small card-cancel" data-action="cancel" aria-label="${esc(r.name)} 선택 취소">선택 취소</button>` : selected && reservation.request ? `<p class="footnote saved-request">요청사항 · ${esc(reservation.request)}</p>${reservation.reply ? `<p class="restaurant-reply"><b>식당 답변</b> ${esc(reservation.reply)}</p>` : ""}` : ""}</div></article>`;
     })
     .join("");
   shell(
-    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:40</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="notice plan-notice"><b>식당 선택은 좌석 예약이 아닌 방문 예정 공유입니다.</b><br>좌석이 확보되지는 않습니다. 만석이면 다른 제휴 식당에서 식사한 뒤 ‘내 식사 기록’을 수정해주세요.</div>${chatPanel()}<button class="mission-banner" data-tab="missions"><span><b>🎁 간식 쿠폰 이벤트</b><small>이벤트별 참여 조건과 쿠폰을 확인하세요</small></span><span>${state.dashboard.missionEvent ? "참여하기 →" : "내 신청 확인 →"}</span></button><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div>${reservation.menu ? `<div class="detail-line"><span>예약 메뉴</span><b>${esc(menuLabel({ name: reservation.menu, price: reservation.menu_price }))}</b></div>` : ""}${(state.dashboard.companions || []).some((c) => c.inMyParty) ? `<div class="detail-line"><span>일행</span><b>나 포함 ${(state.dashboard.companions || []).filter((c) => c.inMyParty).length + 1}명</b></div>` : ""}${reservation.request ? `<div class="detail-line"><span>요청사항</span><b>${esc(reservation.request)}</b></div>` : ""}${reservation.reply ? `<div class="detail-line"><span>식당 답변</span><b>${esc(reservation.reply)}</b></div>` : ""}<div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">방문 예정 정보를 공유했어요. 자리는 확보되지 않으니 종이 식권을 가지고 식당 상황을 확인해주세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button><button class="btn ghost full small" data-tab="history">실제 식사 기록 수정 →</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시 40분에 선택 마감</b><small>변경·취소도 12시 40분 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
+    `<section class="hero"><div><time class="today-date" datetime="${clock.day}">${dateLabel(clock.day)}</time><span class="eyebrow lunch-label">TODAY'S LUNCH</span><h1>오늘은 어디서 먹을까요?</h1><p class="intro">어디로 몇 명이 갈지 확인하고, 함께 조율해요.</p></div><div class="hero-art" aria-hidden="true"><div class="plate">🍚</div></div></section><div class="info-strip"><div class="info-parts"><span><b>선택·취소</b>09:00–12:40</span><span><b>식사 시간</b>12:50–14:00</span></div>${phasePill(clock)}</div><div class="notice plan-notice"><b>식당 선택은 좌석 예약이 아닌 방문 예정 공유입니다.</b><br>좌석이 확보되지는 않습니다. 만석이면 다른 제휴 식당에서 식사한 뒤 ‘내 식사 기록’을 수정해주세요.</div>${chatPanel()}<button class="mission-banner" data-tab="missions"><span><b>🎁 간식 쿠폰 이벤트</b><small>이벤트별 참여 조건과 쿠폰을 확인하세요</small></span><span>${state.dashboard.missionEvent ? "참여하기 →" : "내 신청 확인 →"}</span></button><div class="content-layout"><section><div class="section-head"><div><h2>제휴 식당 <span class="muted">${restaurants.length}</span></h2><p>오늘 ${count}명이 갈 식당을 선택했어요.</p></div><button class="btn ghost small" data-action="refresh">↻ 새로고침</button></div><div class="filter-row"><button class="${state.filter === "all" ? "active" : ""}" data-filter="all">전체 식당</button><button class="${state.filter === "less" ? "active" : ""}" data-filter="less">인원 적은 순</button></div>${cards ? `<div class="cards">${cards}</div>` : '<div class="empty"><h3>표시된 식당이 없어요</h3><p>운영진에게 식당 목록을 확인해주세요.</p></div>'}</section><aside class="side"><section class="side-card reservation-summary"><span class="eyebrow">MY LUNCH PLAN</span><h3 style="margin-top:6px">오늘 가려는 식당</h3>${reservation ? `<div class="reservation-name">${esc(reservation.name)}</div>${reservation.menu ? `<div class="detail-line"><span>예약 메뉴</span><b>${esc(menuLabel({ name: reservation.menu, price: reservation.menu_price }))}</b></div>` : ""}${reservation.sides?.length ? `<div class="detail-line"><span>사이드</span><b>${reservation.sides.map((s) => esc(menuLabel(s))).join(", ")}</b></div>` : ""}${(state.dashboard.companions || []).some((c) => c.inMyParty) ? `<div class="detail-line"><span>일행</span><b>나 포함 ${(state.dashboard.companions || []).filter((c) => c.inMyParty).length + 1}명</b></div>` : ""}${reservation.request ? `<div class="detail-line"><span>요청사항</span><b>${esc(reservation.request)}</b></div>` : ""}${reservation.reply ? `<div class="detail-line"><span>식당 답변</span><b>${esc(reservation.reply)}</b></div>` : ""}<div class="detail-line"><span>식사 시간</span><b>12:50–14:00</b></div><hr><p class="footnote">방문 예정 정보를 공유했어요. 자리는 확보되지 않으니 종이 식권을 가지고 식당 상황을 확인해주세요.</p><button class="btn secondary full small" data-action="cancel" ${clock.phase !== "open" ? "disabled" : ""}>${clock.phase === "open" ? "선택 취소" : "선택·취소 마감"}</button><button class="btn ghost full small" data-tab="history">실제 식사 기록 수정 →</button>` : '<p class="empty-reservation">아직 선택한 식당이 없어요.<br>마음에 드는 식당을 골라주세요.</p><span class="pill red">하루 한 곳 선택</span>'}</section>${todayBoard()}<section class="side-card"><h3>점심 이용 안내</h3><div class="steps"><div class="step"><span class="step-number">01</span><div><b>오전 9시부터 선택</b><small>학번으로 로그인하고 갈 식당을 골라요.</small></div></div><div class="step"><span class="step-number">02</span><div><b>낮 12시 40분에 선택 마감</b><small>변경·취소도 12시 40분 전에 해주세요.</small></div></div><div class="step"><span class="step-number">03</span><div><b>종이 식권으로 식사</b><small>11,000원 초과 금액은 직접 결제해요.</small></div></div></div></section><p class="footnote">방문 예정 인원을 공유하는 페이지입니다.<br>식당 예약이나 자리 확보를 의미하지 않습니다.<br>인원은 30초마다 자동 갱신됩니다.</p></aside></div>`,
   );
 }
 async function loadToday() {
@@ -608,7 +642,7 @@ async function loadAdmin(day) {
     .map((t) => `<option value="${esc(t)}">${esc(trackName(t))}</option>`)
     .join("");
   shell(
-    `<div class="section-head"><div><span class="eyebrow">OPERATIONS</span><h1 style="font-size:30px;margin-top:7px">점심 운영 대시보드</h1><p>식당별 인원과 이용자 명단을 한눈에 확인하세요.</p></div><label class="field date-field">조회 날짜<input type="date" id="admin-day" value="${data.day}"></label></div><div class="stats"><div class="stat"><span>선택한 날짜 예정 인원</span><strong>${data.reservations.length}<small>명</small></strong></div><div class="stat"><span>표시 중인 식당</span><strong>${data.restaurants.filter((r) => r.listed).length}<small>곳</small></strong></div><div class="stat"><span>등록된 이용자</span><strong>${data.users.length}<small>명</small></strong></div></div><section class="panel"><div class="section-head"><div><h2>식당별 예정 인원</h2><p>‘수정’에서 하루 최대 인원을 정할 수 있어요(0은 제한 없음). 식당도 전용 링크에서 직접 바꿀 수 있습니다.</p></div><button class="btn small" data-action="edit-restaurant">+ 식당 추가</button></div><div class="table-wrap"><table><thead><tr><th>식당</th><th>예정 인원</th><th>표시 상태</th><th>관리</th></tr></thead><tbody>${data.restaurants.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.count}명${r.max_people ? ` / ${r.max_people}명` : ""}</td><td><span class="pill ${r.listed ? "green" : "gray"}">${r.listed ? "표시 중" : "숨김"}</span></td><td><div class="table-actions"><button class="btn secondary small" data-action="edit-restaurant" data-id="${r.id}">수정</button><button class="btn secondary small" data-action="restaurant-link" data-id="${r.id}">인원 보기 링크</button></div></td></tr>`).join("")}</tbody></table></div></section><section class="panel"><div class="section-head"><h2>식당 선택 명단</h2><button class="btn secondary small" data-action="export" ${data.reservations.length ? "" : "disabled"}>CSV 다운로드 ↓</button></div>${data.reservations.length ? `<div class="table-wrap"><table><thead><tr><th>예정 식당</th><th>예약 메뉴</th><th>요청사항</th><th>이름</th><th>학번 / ID</th><th>구분</th><th>실제 식사 · 본인 입력</th></tr></thead><tbody>${data.reservations.map((r) => `<tr><td>${esc(r.restaurant)}</td><td>${esc(r.menu || "—")}</td><td>${esc(r.request || "—")}</td><td>${esc(r.name)}</td><td>${esc(r.login_id)}</td><td><span class="pill gray">${esc(trackName(r.track))}</span></td><td>${esc(r.actual_restaurant || "미입력")}${r.change_reason ? `<br><small>${r.change_reason === "sold_out" ? "만석으로 변경" : "기타 사유로 변경"}</small>` : ""}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">선택한 날짜의 식당 선택이 없습니다.</p>'}</section><section class="panel"><div class="section-head"><div><h2>이용자 등록</h2><p>이름·학번·반을 등록하고 초기 비밀번호를 전달해주세요. 운영진 권한은 전체 명단과 계정을 관리할 수 있습니다.</p></div></div><form id="user-form" class="inline-form"><label class="field">이름<input name="name" required maxlength="40" placeholder="김민수"></label><label class="field">학번 / 로그인 ID<input name="loginId" required maxlength="40" placeholder="AX2026001"></label><label class="field">반 / 구분<select name="track">${options}</select></label><label class="field">권한<select name="role"><option value="member">일반 이용자</option><option value="admin">운영진 (관리자)</option></select></label><label class="field">초기 비밀번호<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="비워두면 자동 생성"></label><button class="btn" type="submit">이용자 등록</button></form><details style="margin-top:24px"><summary>여러 명 한 번에 등록하기</summary><form id="bulk-user-form" style="margin-top:16px"><label class="field">한 줄에 이름,학번,반을 입력해주세요<textarea name="members" required placeholder="김민수,AX2026001,AX&#10;이서연,SF2026001,SF&#10;박교수,STAFF001,OTHER" maxlength="10000"></textarea></label><p class="footnote">등록된 반: ${data.tracks.map((t) => esc(t)).join(" / ")}. 개인별 초기 비밀번호가 담긴 CSV를 다운로드합니다. 이 파일은 운영진만 보관하고 각 계정 정보는 당사자에게만 전달해주세요.</p><button class="btn small" type="submit">계정 등록 · 초기 비밀번호 CSV ↓</button></form></details></section><section class="panel"><div class="section-head"><div><h2>반 관리</h2><p>새 기수와 반을 추가할 수 있어요.</p></div></div><div class="filter-row">${data.tracks.map((t) => `<span class="pill gray">${esc(trackName(t))}</span>`).join("")}</div><form id="track-form" class="inline-form"><label class="field">새 반 이름<input name="name" required maxlength="30" placeholder="예: AX3기"></label><button class="btn secondary" type="submit">반 추가</button></form></section><section class="panel"><div class="section-head"><h2>등록된 이용자</h2></div><div class="table-wrap"><table><thead><tr><th>이름</th><th>학번 / ID</th><th>구분</th><th>권한 / 계정 상태</th><th>관리</th></tr></thead><tbody>${data.users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.login_id)}</td><td>${esc(trackName(u.track))}</td><td>${u.role === "admin" ? "운영진" : "일반 이용자"} · ${u.must_change ? "첫 로그인 대기" : "이용 중"}</td><td>${u.id !== state.user.id ? `<div class="table-actions"><button class="btn secondary small" data-action="change-role" data-id="${u.id}">${u.role === "admin" ? "일반 이용자로 변경" : "운영진으로 지정"}</button><button class="btn secondary small" data-action="reset-password" data-id="${u.id}">비밀번호 초기화</button></div>` : "—"}</td></tr>`).join("")}</tbody></table></div></section>${missionAdmin(missions)}`,
+    `<div class="section-head"><div><span class="eyebrow">OPERATIONS</span><h1 style="font-size:30px;margin-top:7px">점심 운영 대시보드</h1><p>식당별 인원과 이용자 명단을 한눈에 확인하세요.</p></div><label class="field date-field">조회 날짜<input type="date" id="admin-day" value="${data.day}"></label></div><div class="stats"><div class="stat"><span>선택한 날짜 예정 인원</span><strong>${data.reservations.length}<small>명</small></strong></div><div class="stat"><span>표시 중인 식당</span><strong>${data.restaurants.filter((r) => r.listed).length}<small>곳</small></strong></div><div class="stat"><span>등록된 이용자</span><strong>${data.users.length}<small>명</small></strong></div></div><section class="panel"><div class="section-head"><div><h2>식당별 예정 인원</h2><p>‘수정’에서 하루 최대 인원을 정할 수 있어요(0은 제한 없음). 식당도 전용 링크에서 직접 바꿀 수 있습니다.</p></div><button class="btn small" data-action="edit-restaurant">+ 식당 추가</button></div><div class="table-wrap"><table><thead><tr><th>식당</th><th>예정 인원</th><th>표시 상태</th><th>관리</th></tr></thead><tbody>${data.restaurants.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.count}명${r.max_people ? ` / ${r.max_people}명` : ""}</td><td><span class="pill ${r.listed ? "green" : "gray"}">${r.listed ? "표시 중" : "숨김"}</span></td><td><div class="table-actions"><button class="btn secondary small" data-action="edit-restaurant" data-id="${r.id}">수정</button><button class="btn secondary small" data-action="restaurant-link" data-id="${r.id}">인원 보기 링크</button></div></td></tr>`).join("")}</tbody></table></div></section><section class="panel"><div class="section-head"><h2>식당 선택 명단</h2><button class="btn secondary small" data-action="export" ${data.reservations.length ? "" : "disabled"}>CSV 다운로드 ↓</button></div>${data.reservations.length ? `<div class="table-wrap"><table><thead><tr><th>예정 식당</th><th>예약 메뉴</th><th>요청사항</th><th>이름</th><th>학번 / ID</th><th>구분</th><th>실제 식사 · 본인 입력</th></tr></thead><tbody>${data.reservations.map((r) => `<tr><td>${esc(r.restaurant)}</td><td>${esc(r.menu || "—")}${r.sides ? `<br><small>+ ${esc(r.sides)}</small>` : ""}</td><td>${esc(r.request || "—")}</td><td>${esc(r.name)}</td><td>${esc(r.login_id)}</td><td><span class="pill gray">${esc(trackName(r.track))}</span></td><td>${esc(r.actual_restaurant || "미입력")}${r.change_reason ? `<br><small>${r.change_reason === "sold_out" ? "만석으로 변경" : "기타 사유로 변경"}</small>` : ""}</td></tr>`).join("")}</tbody></table></div>` : '<p class="muted">선택한 날짜의 식당 선택이 없습니다.</p>'}</section><section class="panel"><div class="section-head"><div><h2>이용자 등록</h2><p>이름·학번·반을 등록하고 초기 비밀번호를 전달해주세요. 운영진 권한은 전체 명단과 계정을 관리할 수 있습니다.</p></div></div><form id="user-form" class="inline-form"><label class="field">이름<input name="name" required maxlength="40" placeholder="김민수"></label><label class="field">학번 / 로그인 ID<input name="loginId" required maxlength="40" placeholder="AX2026001"></label><label class="field">반 / 구분<select name="track">${options}</select></label><label class="field">권한<select name="role"><option value="member">일반 이용자</option><option value="admin">운영진 (관리자)</option></select></label><label class="field">초기 비밀번호<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="비워두면 자동 생성"></label><button class="btn" type="submit">이용자 등록</button></form><details style="margin-top:24px"><summary>여러 명 한 번에 등록하기</summary><form id="bulk-user-form" style="margin-top:16px"><label class="field">한 줄에 이름,학번,반을 입력해주세요<textarea name="members" required placeholder="김민수,AX2026001,AX&#10;이서연,SF2026001,SF&#10;박교수,STAFF001,OTHER" maxlength="10000"></textarea></label><p class="footnote">등록된 반: ${data.tracks.map((t) => esc(t)).join(" / ")}. 개인별 초기 비밀번호가 담긴 CSV를 다운로드합니다. 이 파일은 운영진만 보관하고 각 계정 정보는 당사자에게만 전달해주세요.</p><button class="btn small" type="submit">계정 등록 · 초기 비밀번호 CSV ↓</button></form></details></section><section class="panel"><div class="section-head"><div><h2>반 관리</h2><p>새 기수와 반을 추가할 수 있어요.</p></div></div><div class="filter-row">${data.tracks.map((t) => `<span class="pill gray">${esc(trackName(t))}</span>`).join("")}</div><form id="track-form" class="inline-form"><label class="field">새 반 이름<input name="name" required maxlength="30" placeholder="예: AX3기"></label><button class="btn secondary" type="submit">반 추가</button></form></section><section class="panel"><div class="section-head"><h2>등록된 이용자</h2></div><div class="table-wrap"><table><thead><tr><th>이름</th><th>학번 / ID</th><th>구분</th><th>권한 / 계정 상태</th><th>관리</th></tr></thead><tbody>${data.users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.login_id)}</td><td>${esc(trackName(u.track))}</td><td>${u.role === "admin" ? "운영진" : "일반 이용자"} · ${u.must_change ? "첫 로그인 대기" : "이용 중"}</td><td>${u.id !== state.user.id ? `<div class="table-actions"><button class="btn secondary small" data-action="change-role" data-id="${u.id}">${u.role === "admin" ? "일반 이용자로 변경" : "운영진으로 지정"}</button><button class="btn secondary small" data-action="reset-password" data-id="${u.id}">비밀번호 초기화</button></div>` : "—"}</td></tr>`).join("")}</tbody></table></div></section>${missionAdmin(missions)}`,
   );
 }
 function accountDetails(account) {
@@ -730,7 +764,7 @@ function exportCSV() {
     ...state.admin.reservations.map((r) => [
       state.admin.day,
       r.restaurant,
-      r.menu || "",
+      [r.menu, r.sides].filter(Boolean).join(" + "),
       r.request || "",
       r.name,
       r.login_id,
@@ -788,15 +822,18 @@ async function renderRestaurant() {
   const menuCounts = data.menuItems
     .map((item) => ({
       ...item,
-      count: data.orders.filter((o) => !o.custom && o.menu === item.name)
-        .length,
+      count:
+        item.kind === "side"
+          ? data.orders.filter((o) => o.sides.some((s) => s.id === item.id))
+              .length
+          : data.orders.filter((o) => !o.custom && o.menu === item.name).length,
     }))
     .filter((item) => item.count);
   const customCount = data.orders.filter((o) => o.custom).length;
   const requestCount = data.orders.filter((o) => o.request).length;
   if (customCount) menuCounts.push({ name: "직접 입력", count: customCount });
   const orderRow = (o) =>
-    `<tr class="${o.request ? "has-request" : ""}"><td>${o.menu ? `<b>${esc(o.menu)}</b>${o.custom ? ' <span class="pill gray">직접 입력</span>' : ""}${o.price ? `<br><small class="muted">${won(o.price)}</small>` : ""}` : '<span class="muted">메뉴 미정</span>'}</td><td>${esc(o.name)}</td><td>${esc(trackName(o.track))}</td></tr>${o.request ? `<tr class="order-request"><td colspan="3"><span class="request-label">요청</span> ${esc(o.request)}${o.reply ? `<div class="reply-now"><span class="reply-label">보낸 답변</span> ${esc(o.reply)}</div>` : ""}${data.replyOpen ? `<form class="reply-form" data-id="${o.id}"><div class="quick-replies"><button type="button" class="btn secondary small" data-action="quick-reply" data-id="${o.id}" data-reply="확인했어요">확인했어요</button><button type="button" class="btn secondary small" data-action="quick-reply" data-id="${o.id}" data-reply="어려워요">어려워요</button></div><div class="reply-input"><input name="reply" maxlength="100" aria-label="${esc(o.name)} 요청에 답변" placeholder="${o.reply ? "답변 고쳐 보내기" : "직접 답변 적기"}"><button class="btn small" type="submit">보내기</button></div></form>` : ""}</td></tr>` : ""}`;
+    `<tr class="${o.request ? "has-request" : ""}"><td>${o.menu ? `<b>${esc(o.menu)}</b>${o.custom ? ' <span class="pill gray">직접 입력</span>' : ""}${o.price ? `<br><small class="muted">${won(o.price)}</small>` : ""}` : '<span class="muted">메뉴 미정</span>'}${o.sides.length ? `<div class="order-sides">+ ${o.sides.map((s) => esc(s.name)).join(", ")}</div>` : ""}</td><td>${esc(o.name)}</td><td>${esc(trackName(o.track))}</td></tr>${o.request ? `<tr class="order-request"><td colspan="3"><span class="request-label">요청</span> ${esc(o.request)}${o.reply ? `<div class="reply-now"><span class="reply-label">보낸 답변</span> ${esc(o.reply)}</div>` : ""}${data.replyOpen ? `<form class="reply-form" data-id="${o.id}"><div class="quick-replies"><button type="button" class="btn secondary small" data-action="quick-reply" data-id="${o.id}" data-reply="확인했어요">확인했어요</button><button type="button" class="btn secondary small" data-action="quick-reply" data-id="${o.id}" data-reply="어려워요">어려워요</button></div><div class="reply-input"><input name="reply" maxlength="100" aria-label="${esc(o.name)} 요청에 답변" placeholder="${o.reply ? "답변 고쳐 보내기" : "직접 답변 적기"}"><button class="btn small" type="submit">보내기</button></div></form>` : ""}</td></tr>` : ""}`;
   const orderTable = (rows) =>
     `<div class="table-wrap"><table><thead><tr><th>메뉴</th><th>이름</th><th>구분</th></tr></thead><tbody>${rows.map(orderRow).join("")}</tbody></table></div>`;
   const partyIds = [
@@ -811,7 +848,7 @@ async function renderRestaurant() {
   const soloCount = soloOrders.length + soloPlain;
   const orders = `<section class="side-card restaurant-orders"><div class="section-head"><h2>오늘 예약 명단</h2><span class="pill ${data.count ? "red" : "gray"}">${data.count}명</span></div><div class="track-counts party-summary"><span>일행 <b>${parties.length}팀</b> (${parties.reduce((sum, p) => sum + p.length, 0)}명)</span><span>혼자 <b>${soloCount}명</b></span></div>${menuCounts.length || requestCount ? `<div class="track-counts">${menuCounts.map((m) => `<span>${esc(m.name)} <b>${m.count}개</b></span>`).join("")}${requestCount ? `<span>요청사항 <b>${requestCount}건</b></span>` : ""}</div>` : ""}${parties.map((members, i) => `<div class="party-group"><h3><span class="party-tag">일행 ${i + 1}</span> ${members.length}명 함께 와요</h3>${orderTable(members)}</div>`).join("")}${soloCount ? `<div class="party-group solo"><h3><span class="party-tag solo">혼자</span> ${soloCount}명</h3>${soloOrders.length ? orderTable(soloOrders) : ""}${soloPlain ? `<p class="footnote">메뉴·요청 없이 혼자 오는 손님 ${soloPlain}명</p>` : ""}</div>` : `<p class="muted">${data.menuItems.length ? "아직 예약한 사람이 없습니다." : "손님이 직접 적은 메뉴나, 아래에서 등록한 메뉴로 예약하면 여기에 표시됩니다."}</p>`}<p class="footnote">손님이 같은 식당을 고른 사람끼리 ‘일행’으로 묶으면 일행별로 모아서 보여드려요. 12시 40분 마감 전까지 메뉴·일행·요청사항이 바뀔 수 있습니다. 요청사항은 이름 아래 ‘요청’으로 표시되며, 12시 50분까지 답변을 보낼 수 있어요. 손님이 요청을 고치면 이전 답변은 지워집니다.</p></section>`;
   const limitManager = `<section class="side-card restaurant-limit"><h2>하루 최대 인원</h2><p class="footnote">정원이 차면 학생 화면에서 이 식당을 더 고를 수 없어요. 이미 선택한 사람은 그대로 유지됩니다. 0을 넣으면 제한이 없어요.</p><p class="limit-now">현재 · <b>${data.restaurant.max_people ? `최대 ${data.restaurant.max_people}명` : "제한 없음"}</b></p><form id="restaurant-limit-form" class="inline-form"><label class="field">최대 인원<input name="maxPeople" type="number" min="0" max="500" step="1" inputmode="numeric" required value="${data.restaurant.max_people}"></label><button class="btn" type="submit">인원 제한 저장</button></form><p class="form-error" role="alert"></p></section>`;
-  const menuManager = `<section class="side-card restaurant-menu"><h2>예약 메뉴 관리</h2><p class="footnote">등록한 메뉴는 학생 화면에 바로 표시되고, 손님은 이 중 하나를 고르거나 메뉴를 직접 적어 예약합니다. 메뉴가 많다면 대표 메뉴만 등록해도 됩니다. ‘수정’으로 이름과 가격을 고칠 수 있어요.</p>${data.menuItems.length ? `<ul class="menu-items">${data.menuItems.map((m) => `<li><span><b>${esc(m.name)}</b>${m.price ? ` <small class="muted">${won(m.price)}</small>` : ""}</span><span class="table-actions"><button class="btn secondary small" data-action="menu-edit" data-id="${m.id}" aria-label="${esc(m.name)} 수정">수정</button><button class="btn ghost small" data-action="menu-remove" data-id="${m.id}" aria-label="${esc(m.name)} 삭제">삭제</button></span></li>`).join("")}</ul>` : '<p class="muted">등록된 메뉴가 없습니다.</p>'}<form id="restaurant-menu-form" class="inline-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" placeholder="예: 제육덮밥"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" placeholder="예: 9000"></label><button class="btn" type="submit">메뉴 추가</button></form><p class="form-error" role="alert"></p></section>`;
+  const menuManager = `<section class="side-card restaurant-menu"><h2>예약 메뉴 관리</h2><p class="footnote">등록한 메뉴는 학생 화면에 바로 표시되고, 손님은 메인 메뉴 하나(또는 직접 입력)와 사이드 메뉴 여러 개를 골라 예약합니다. 메뉴가 많다면 대표 메뉴만 등록해도 됩니다. ‘수정’으로 이름과 가격을 고칠 수 있어요.</p>${data.menuItems.length ? `<ul class="menu-items">${data.menuItems.map((m) => `<li><span>${m.kind === "side" ? '<span class="pill gray">사이드</span> ' : ""}<b>${esc(m.name)}</b>${m.price ? ` <small class="muted">${won(m.price)}</small>` : ""}</span><span class="table-actions"><button class="btn secondary small" data-action="menu-edit" data-id="${m.id}" aria-label="${esc(m.name)} 수정">수정</button><button class="btn ghost small" data-action="menu-remove" data-id="${m.id}" aria-label="${esc(m.name)} 삭제">삭제</button></span></li>`).join("")}</ul>` : '<p class="muted">등록된 메뉴가 없습니다.</p>'}<form id="restaurant-menu-form" class="inline-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" placeholder="예: 제육덮밥"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" placeholder="예: 9000"></label><label class="field">종류<select name="kind"><option value="main">메인 (하나만 선택)</option><option value="side">사이드 (여러 개 선택)</option></select></label><button class="btn" type="submit">메뉴 추가</button></form><p class="form-error" role="alert"></p></section>`;
   const updated = new Intl.DateTimeFormat("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -923,11 +960,15 @@ document.addEventListener("click", async (event) => {
         try {
           await api("/choice", "POST", {
             restaurantId: id,
+            sideIds: [...(card?.querySelectorAll(".side-check:checked") || [])].map(
+              (box) => Number(box.value),
+            ),
             ...(custom
               ? { menuNote }
               : { menuItemId: Number(picker.value) }),
           });
           state.menuChoice = {};
+          state.sidePick = {};
           state.menuNote = {};
           state.requestDraft = null;
           state.partyPick = new Set();
@@ -947,6 +988,7 @@ document.addEventListener("click", async (event) => {
         try {
           await api("/choice", "DELETE", {});
           state.menuChoice = {};
+          state.sidePick = {};
           state.menuNote = {};
           state.requestDraft = null;
           state.partyPick = new Set();
@@ -1080,7 +1122,7 @@ document.addEventListener("click", async (event) => {
         const item = restaurantMenu.find((m) => m.id === id);
         if (!item) break;
         modal(
-          `<h2>메뉴 수정</h2><p>이름이나 가격을 고치면 이미 이 메뉴로 예약한 사람의 명단에도 함께 반영돼요. 전혀 다른 메뉴로 바꾸려면 삭제한 뒤 새로 추가해주세요.</p><form id="menu-edit-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" value="${esc(item.name)}"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" value="${item.price || ""}"></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="btn secondary" type="button" data-action="close-modal">닫기</button><button class="btn" type="submit">저장하기</button></div></form>`,
+          `<h2>메뉴 수정</h2><p>이름이나 가격을 고치면 이미 이 메뉴로 예약한 사람의 명단에도 함께 반영돼요. 전혀 다른 메뉴로 바꾸려면 삭제한 뒤 새로 추가해주세요.</p><form id="menu-edit-form"><label class="field">메뉴 이름<input name="name" required maxlength="40" value="${esc(item.name)}"></label><label class="field">가격 <small>(선택)</small><input name="price" type="number" min="0" max="100000" step="100" inputmode="numeric" value="${item.price || ""}"></label><label class="field">종류<select name="kind"><option value="main" ${item.kind !== "side" ? "selected" : ""}>메인 (하나만 선택)</option><option value="side" ${item.kind === "side" ? "selected" : ""}>사이드 (여러 개 선택)</option></select></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="btn secondary" type="button" data-action="close-modal">닫기</button><button class="btn" type="submit">저장하기</button></div></form>`,
         );
         document.querySelector("#menu-edit-form").onsubmit = async (event) => {
           event.preventDefault();
@@ -1093,6 +1135,7 @@ document.addEventListener("click", async (event) => {
               id,
               name: form.get("name"),
               price: Number(form.get("price") || 0),
+              kind: form.get("kind"),
             });
             dialog.close();
             await renderRestaurant();
@@ -1318,11 +1361,12 @@ document.addEventListener("submit", async (event) => {
         token: restaurantToken,
         name: data.get("name"),
         price: Number(data.get("price") || 0),
+        kind: data.get("kind"),
       });
       await renderRestaurant();
       toast("메뉴를 등록했어요.");
     } catch (e) {
-      form.querySelector(".form-error").textContent = e.message;
+      form.parentElement.querySelector(".form-error").textContent = e.message;
       button.disabled = false;
     }
     return;
@@ -1453,7 +1497,17 @@ document.addEventListener("change", async (event) => {
     if (event.target.checked) state.partyPick.add(id);
     else state.partyPick.delete(id);
   }
+  if (event.target.classList.contains("side-check")) {
+    const card = event.target.closest(".restaurant-card");
+    state.sidePick[event.target.dataset.restaurant] = new Set(
+      [...card.querySelectorAll(".side-check:checked")].map((box) =>
+        Number(box.value),
+      ),
+    );
+    updateCardTotal(card);
+  }
   if (event.target.classList.contains("menu-select")) {
+    updateCardTotal(event.target.closest(".restaurant-card"));
     const value = event.target.value;
     state.menuChoice[event.target.dataset.restaurant] =
       value === "custom" ? "custom" : value ? Number(value) : null;

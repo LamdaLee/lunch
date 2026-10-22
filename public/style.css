@@ -1802,3 +1802,26 @@ dialog > p {
   color: var(--green);
   margin-right: 4px;
 }
+.side-pick {
+  border: 0;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.side-pick legend {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.price-total {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.order-sides {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}

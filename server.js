@@ -291,6 +291,18 @@ export function createApp({
                 .prepare("UPDATE reservations SET party_id=NULL WHERE party_id=?")
                 .run(partyId);
           };
+          // Side dishes per reservation, as Map(reservation id -> [{id,name,price}]).
+          const sidesOf = async (where, values) => {
+            const rows = await db
+              .prepare(
+                `SELECT s.reservation_id,mi.id,mi.name,mi.price FROM reservation_sides s JOIN reservations r ON r.id=s.reservation_id JOIN menu_items mi ON mi.id=s.menu_item_id WHERE ${where} ORDER BY mi.id`,
+              )
+              .all(...values);
+            const map = new Map();
+            for (const { reservation_id, ...side } of rows)
+              map.set(reservation_id, [...(map.get(reservation_id) || []), side]);
+            return map;
+          };
           const restaurantByToken = async (value) =>
             (typeof value === "string" &&
               (await db
@@ -305,13 +317,15 @@ export function createApp({
             const price = body.price ?? 0;
             if (!Number.isInteger(price) || price < 0 || price > 100000)
               fail(400, "가격은 0~100,000원 사이의 숫자로 입력해주세요.");
+            if (body.kind !== undefined && !["main", "side"].includes(body.kind))
+              fail(400, "메뉴 종류는 메인 또는 사이드로 골라주세요.");
             if (body.id !== undefined) {
               if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
               const result = await db
                 .prepare(
-                  "UPDATE menu_items SET name=?,price=? WHERE id=? AND restaurant_id=? AND active=1",
+                  "UPDATE menu_items SET name=?,price=?,kind=COALESCE(?,kind) WHERE id=? AND restaurant_id=? AND active=1",
                 )
-                .run(name, price, body.id, restaurant.id);
+                .run(name, price, body.kind ?? null, body.id, restaurant.id);
               if (!result.changes) fail(404, "메뉴를 찾을 수 없습니다.");
               return send(200, { ok: true });
             }
@@ -324,9 +338,9 @@ export function createApp({
               fail(409, "메뉴는 최대 30개까지 등록할 수 있습니다.");
             await db
               .prepare(
-                "INSERT INTO menu_items(restaurant_id,name,price) VALUES (?,?,?)",
+                "INSERT INTO menu_items(restaurant_id,name,price,kind) VALUES (?,?,?,?)",
               )
-              .run(restaurant.id, name, price);
+              .run(restaurant.id, name, price, body.kind ?? "main");
             return send(201, { ok: true });
           }
           const maxPeopleOf = (value) =>
@@ -390,6 +404,10 @@ export function createApp({
                 `SELECT u.track, COUNT(*) count FROM meal_records m JOIN users u ON u.id=m.user_id WHERE m.restaurant_id=? AND m.day=? GROUP BY u.track`,
               )
               .all(restaurant.id, clock.day);
+            const sidesByReservation = await sidesOf(
+              "r.restaurant_id=? AND r.day=?",
+              [restaurant.id, clock.day],
+            );
             const changedAway = await db
               .prepare(
                 `SELECT COUNT(*) count FROM reservations r JOIN meal_records m ON m.user_id=r.user_id AND m.day=r.day WHERE r.restaurant_id=? AND r.day=? AND m.restaurant_id<>r.restaurant_id`,
@@ -408,18 +426,19 @@ export function createApp({
               replyOpen: clock.minute >= 540 && clock.minute < 770,
               menuItems: await db
                 .prepare(
-                  "SELECT id,name,price FROM menu_items WHERE restaurant_id=? AND active=1 ORDER BY id",
+                  "SELECT id,name,price,kind FROM menu_items WHERE restaurant_id=? AND active=1 ORDER BY kind='side',id",
                 )
                 .all(restaurant.id),
               // Only people who pre-ordered a menu are listed by name; login IDs stay hidden.
               orders: (
                 await db
                   .prepare(
-                    "SELECT r.id,u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request,r.reply,r.party_id party FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'' OR r.party_id IS NOT NULL) ORDER BY r.party_id IS NULL,r.party_id,r.menu_item_id IS NULL,mi.id,u.track,u.name",
+                    "SELECT r.id,u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request,r.reply,r.party_id party FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'' OR r.party_id IS NOT NULL OR EXISTS (SELECT 1 FROM reservation_sides s WHERE s.reservation_id=r.id)) ORDER BY r.party_id IS NULL,r.party_id,r.menu_item_id IS NULL,mi.id,u.track,u.name",
                   )
                   .all(restaurant.id, clock.day)
               ).map(({ menu_item_id, ...order }) => ({
                 ...order,
+                sides: sidesByReservation.get(order.id) || [],
                 custom: menu_item_id === null && order.menu !== null,
               })),
               clock,
@@ -559,6 +578,11 @@ export function createApp({
                   "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,b.request,b.reply,b.reply_at,b.party_id,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
+            if (reservation)
+              reservation.sides =
+                (await sidesOf("r.id=?", [reservation.id])).get(
+                  reservation.id,
+                ) || [];
             const totals = await db
               .prepare(
                 "SELECT b.restaurant_id,u.track,COUNT(*) count FROM reservations b JOIN users u ON u.id=b.user_id WHERE b.day=? GROUP BY b.restaurant_id,u.track",
@@ -566,7 +590,7 @@ export function createApp({
               .all(clock.day);
             const menuItems = await db
               .prepare(
-                "SELECT id,restaurant_id,name,price FROM menu_items WHERE active=1 ORDER BY id",
+                "SELECT id,restaurant_id,name,price,kind FROM menu_items WHERE active=1 ORDER BY kind='side',id",
               )
               .all();
             for (const restaurant of restaurants) {
@@ -575,7 +599,7 @@ export function createApp({
                 .map(({ track, count }) => ({ track, count }));
               restaurant.menuItems = menuItems
                 .filter((item) => item.restaurant_id === restaurant.id)
-                .map(({ id, name, price }) => ({ id, name, price }));
+                .map(({ id, name, price, kind }) => ({ id, name, price, kind }));
             }
             // People at my restaurant today, so I can form a party with them.
             const companions = reservation
@@ -651,7 +675,7 @@ export function createApp({
                 !menuNote &&
                 (await db
                   .prepare(
-                    "SELECT id FROM menu_items WHERE restaurant_id=? AND active=1 LIMIT 1",
+                    "SELECT id FROM menu_items WHERE restaurant_id=? AND active=1 AND kind='main' LIMIT 1",
                   )
                   .get(restaurant.id))
               )
@@ -660,11 +684,29 @@ export function createApp({
                 menuItemId !== null &&
                 !(await db
                   .prepare(
-                    "SELECT id FROM menu_items WHERE id=? AND restaurant_id=? AND active=1",
+                    "SELECT id FROM menu_items WHERE id=? AND restaurant_id=? AND active=1 AND kind='main'",
                   )
                   .get(menuItemId, restaurant.id))
               )
                 fail(404, "현재 예약할 수 없는 메뉴입니다.");
+              const sideIds = body.sideIds ?? [];
+              if (
+                !Array.isArray(sideIds) ||
+                sideIds.length > 10 ||
+                !sideIds.every(Number.isInteger) ||
+                new Set(sideIds).size !== sideIds.length
+              )
+                fail(400, "사이드 메뉴는 10개까지 골라주세요.");
+              for (const sideId of sideIds)
+                if (
+                  !(await db
+                    .prepare(
+                      "SELECT id FROM menu_items WHERE id=? AND restaurant_id=? AND active=1 AND kind='side'",
+                    )
+                    .get(sideId, restaurant.id))
+                )
+                  fail(404, "현재 고를 수 없는 사이드 메뉴입니다.");
+              const sideKey = [...sideIds].sort((a, b) => a - b).join(",");
               const existing = await db
                 .prepare("SELECT * FROM reservations WHERE user_id=? AND day=?")
                 .get(user.id, clock.day);
@@ -687,7 +729,16 @@ export function createApp({
               if (
                 existing?.restaurant_id === restaurant.id &&
                 (existing.menu_item_id ?? null) === menuItemId &&
-                (existing.menu_note || "") === menuNote
+                (existing.menu_note || "") === menuNote &&
+                (
+                  await db
+                    .prepare(
+                      "SELECT menu_item_id FROM reservation_sides WHERE reservation_id=? ORDER BY menu_item_id",
+                    )
+                    .all(existing.id)
+                )
+                  .map((s) => s.menu_item_id)
+                  .join(",") === sideKey
               )
                 fail(409, "이미 같은 식당·메뉴로 선택했어요.");
               await db
@@ -704,6 +755,18 @@ export function createApp({
                 );
               if (existing && existing.restaurant_id !== restaurant.id)
                 await tidyParty(existing.party_id);
+              const saved = await db
+                .prepare("SELECT id FROM reservations WHERE user_id=? AND day=?")
+                .get(user.id, clock.day);
+              await db
+                .prepare("DELETE FROM reservation_sides WHERE reservation_id=?")
+                .run(saved.id);
+              for (const sideId of sideIds)
+                await db
+                  .prepare(
+                    "INSERT INTO reservation_sides(reservation_id,menu_item_id) VALUES (?,?)",
+                  )
+                  .run(saved.id, sideId);
             }
             return send(200, { ok: true });
           }
@@ -736,9 +799,13 @@ export function createApp({
             requireOpen();
             const existing = await db
               .prepare(
-                "SELECT party_id FROM reservations WHERE user_id=? AND day=?",
+                "SELECT id,party_id FROM reservations WHERE user_id=? AND day=?",
               )
               .get(user.id, clock.day);
+            if (existing)
+              await db
+                .prepare("DELETE FROM reservation_sides WHERE reservation_id=?")
+                .run(existing.id);
             await db
               .prepare("DELETE FROM reservations WHERE user_id=? AND day=?")
               .run(user.id, clock.day);
@@ -1027,6 +1094,11 @@ export function createApp({
                   "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,b.request,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
                 )
                 .all(day);
+              const adminSides = await sidesOf("r.day=?", [day]);
+              for (const reservation of reservations)
+                reservation.sides = (adminSides.get(reservation.id) || [])
+                  .map((s) => s.name)
+                  .join(", ");
               const users = await db
                 .prepare(
                   "SELECT id,name,login_id,track,role,active,must_change FROM users ORDER BY id",
