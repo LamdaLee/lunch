@@ -242,13 +242,13 @@ test("식당이 링크로 메뉴를 등록하고 누가 어떤 메뉴를 예약�
     ],
   );
 
-  // Menu reservations stay open until 12:40, then close with everything else.
-  app.setTime("2026-10-12T12:20:00+09:00");
+  // Menu reservations stay open until noon, then close with everything else.
+  app.setTime("2026-10-12T11:50:00+09:00");
   assert.equal(
     (await choose(sf, { restaurantId: 1, menuItemId: kimchi.id })).status,
     200,
   );
-  app.setTime("2026-10-12T12:40:00+09:00");
+  app.setTime("2026-10-12T12:00:00+09:00");
   assert.equal(
     (await choose(sf, { restaurantId: 1, menuItemId: jeyuk.id })).status,
     409,
@@ -424,7 +424,7 @@ test("식당에 요청사항 전달: 같은 식당 안에서는 유지, 식당�
     (await app.request("/restaurant?token=" + token)).data.orders.length,
     0,
   );
-  app.setTime("2026-10-12T12:40:00+09:00");
+  app.setTime("2026-10-12T12:00:00+09:00");
   assert.equal((await request(ax, "늦은 요청")).status, 409);
 });
 

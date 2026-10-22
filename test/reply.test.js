@@ -96,7 +96,7 @@ test("식당은 12:50까지 요청에 답하고, 학생이 요청을 고치거�
     (await app.request("/dashboard", { cookie: ax })).data.reservation.reply,
     "어려워요",
   );
-  // Restaurants may answer after the 12:40 cutoff, until 12:50.
+  // Restaurants may answer after the noon cutoff, until 12:50.
   app.setTime("2026-10-12T12:45:00+09:00");
   assert.equal((await reply(mine, order.id, "확인했어요")).status, 200);
   app.setTime("2026-10-12T12:50:00+09:00");

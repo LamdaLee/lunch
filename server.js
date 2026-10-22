@@ -165,7 +165,7 @@ export function createApp({
                 409,
                 current.phase === "before"
                   ? "선택과 취소는 오전 9시부터 가능합니다."
-                  : "오늘 선택과 취소는 낮 12시 40분에 마감되었습니다.",
+                  : "오늘 선택과 취소는 낮 12시에 마감되었습니다.",
               );
           };
           const setSession = async (id) => {

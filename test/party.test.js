@@ -107,7 +107,7 @@ test("같은 식당을 고른 사람끼리 일행으로 묶고 식당은 일행�
     page.orders.map((o) => o.name).sort(),
     ["AX학생", "SF학생"],
   );
-  app.setTime("2026-10-12T12:40:00+09:00");
+  app.setTime("2026-10-12T12:00:00+09:00");
   assert.equal((await party(ax, [sfId])).status, 409);
   assert.equal(
     (await app.request("/party/leave", { method: "POST", cookie: ax, body: {} }))

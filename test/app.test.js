@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fixture, testPassword } from "./helpers.js";
 import { koreaClock } from "../lib/store.js";
 
-test("한국 시간으로 09:00 개시, 12:40 정각 예약·취소 마감", async (t) => {
+test("한국 시간으로 09:00 개시, 12:00 정각 예약·취소 마감", async (t) => {
   const app = await fixture();
   t.after(() => app.close());
   const cookie = await app.login("AX학생");
@@ -20,14 +20,14 @@ test("한국 시간으로 09:00 개시, 12:40 정각 예약·취소 마감", asy
   assert.equal((await reserve()).status, 409);
   app.setTime("2026-10-12T09:00:00+09:00");
   assert.equal((await reserve()).status, 200);
-  app.setTime("2026-10-12T12:39:59+09:00");
+  app.setTime("2026-10-12T11:59:59+09:00");
   assert.equal(
     (await app.request("/choice", { method: "DELETE", cookie, body: {} }))
       .status,
     200,
   );
   assert.equal((await reserve()).status, 200);
-  app.setTime("2026-10-12T12:40:00+09:00");
+  app.setTime("2026-10-12T12:00:00+09:00");
   assert.equal(
     (await app.request("/choice", { method: "DELETE", cookie, body: {} }))
       .status,
