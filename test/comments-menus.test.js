@@ -1,0 +1,491 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { fixture } from "./helpers.js";
+
+test("게시글 댓글은 로그인한 이용자가 달고 작성자와 운영진만 삭제", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const ax = await app.login("AX학생");
+  const sf = await app.login("SF학생");
+  const admin = await app.login("테스트관리자");
+  await app.request("/posts", {
+    method: "POST",
+    cookie: ax,
+    body: { title: "칼국수 가실 분", body: "같이 가요" },
+  });
+  const postId = (await app.request("/posts", { cookie: ax })).data.posts[0]
+    .id;
+  const comment = (cookie, body) =>
+    app.request(`/posts/${postId}/comments`, {
+      method: "POST",
+      cookie,
+      body: { body },
+    });
+  assert.equal(
+    (
+      await app.request(`/posts/${postId}/comments`, {
+        method: "POST",
+        body: { body: "익명" },
+      })
+    ).status,
+    401,
+  );
+  assert.equal((await comment(sf, "  ")).status, 400);
+  assert.equal((await comment(sf, "x".repeat(501))).status, 400);
+  assert.equal((await comment(sf, "저도 갈래요")).status, 201);
+  assert.equal((await comment(sf, "연속 댓글")).status, 429);
+  app.setTime("2026-10-12T10:00:06+09:00");
+  assert.equal((await comment(ax, "좋아요")).status, 201);
+  assert.equal(
+    (
+      await app.request("/posts/9999/comments", {
+        method: "POST",
+        cookie: ax,
+        body: { body: "없는 글" },
+      })
+    ).status,
+    404,
+  );
+
+  const board = (await app.request("/posts", { cookie: ax })).data.posts[0];
+  assert.deepEqual(
+    board.comments.map((c) => [c.name, c.body]),
+    [
+      ["SF학생", "저도 갈래요"],
+      ["AX학생", "좋아요"],
+    ],
+  );
+  assert.equal(JSON.stringify(board.comments).includes("sf001"), false);
+  const detail = (await app.request(`/posts/${postId}`, { cookie: ax })).data
+    .post;
+  assert.equal(detail.comments.length, 2);
+
+  const [sfComment, axComment] = board.comments;
+  assert.equal(
+    (
+      await app.request(`/comments/${sfComment.id}`, {
+        method: "DELETE",
+        cookie: ax,
+        body: {},
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await app.request(`/comments/${sfComment.id}`, {
+        method: "DELETE",
+        cookie: sf,
+        body: {},
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await app.request(`/comments/${axComment.id}`, {
+        method: "DELETE",
+        cookie: admin,
+        body: {},
+      })
+    ).status,
+    200,
+  );
+  app.setTime("2026-10-12T10:00:12+09:00");
+  assert.equal((await comment(sf, "다시 남김")).status, 201);
+  // Deleting a post removes its comments as well.
+  assert.equal(
+    (
+      await app.request(`/posts/${postId}`, {
+        method: "DELETE",
+        cookie: ax,
+        body: {},
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await app.db.prepare("SELECT COUNT(*) n FROM post_comments").get()).n,
+    0,
+  );
+});
+
+test("식당이 링크로 메뉴를 등록하고 누가 어떤 메뉴를 예약했는지 확인", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const restaurantToken = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  const otherToken = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=2")
+      .get()
+  ).access_token;
+  const addMenu = (token, name, price) =>
+    app.request("/restaurant/menu", {
+      method: "POST",
+      body: { token, name, price },
+    });
+  assert.equal((await addMenu("wrong", "제육덮밥", 9000)).status, 404);
+  assert.equal((await addMenu(restaurantToken, "", 9000)).status, 400);
+  assert.equal((await addMenu(restaurantToken, "제육덮밥", -1)).status, 400);
+  assert.equal((await addMenu(restaurantToken, "제육덮밥", 9000)).status, 201);
+  assert.equal((await addMenu(restaurantToken, "김치찌개", 8000)).status, 201);
+  assert.equal((await addMenu(otherToken, "잔치국수", 7000)).status, 201);
+  let page = (await app.request("/restaurant?token=" + restaurantToken)).data;
+  assert.deepEqual(
+    page.menuItems.map((m) => [m.name, m.price]),
+    [
+      ["제육덮밥", 9000],
+      ["김치찌개", 8000],
+    ],
+  );
+  const [jeyuk, kimchi] = page.menuItems;
+  const noodle = (await app.request("/restaurant?token=" + otherToken)).data
+    .menuItems[0];
+  // A restaurant cannot change another restaurant's menu.
+  assert.equal(
+    (
+      await app.request("/restaurant/menu/remove", {
+        method: "POST",
+        body: { token: restaurantToken, id: noodle.id },
+      })
+    ).status,
+    404,
+  );
+
+  const ax = await app.login("AX학생");
+  const sf = await app.login("SF학생");
+  const choose = (cookie, body) =>
+    app.request("/choice", { method: "POST", cookie, body });
+  const dashboard = (await app.request("/dashboard", { cookie: ax })).data;
+  assert.deepEqual(
+    dashboard.restaurants[0].menuItems.map((m) => m.name),
+    ["제육덮밥", "김치찌개"],
+  );
+  assert.equal((await choose(ax, { restaurantId: 1 })).status, 400);
+  assert.equal(
+    (await choose(ax, { restaurantId: 1, menuItemId: noodle.id })).status,
+    404,
+  );
+  assert.equal(
+    (await choose(ax, { restaurantId: 1, menuItemId: jeyuk.id })).status,
+    200,
+  );
+  assert.equal(
+    (await choose(ax, { restaurantId: 1, menuItemId: jeyuk.id })).status,
+    409,
+  );
+  assert.equal(
+    (await choose(ax, { restaurantId: 1, menuItemId: kimchi.id })).status,
+    200,
+  );
+  assert.equal(
+    (await choose(sf, { restaurantId: 1, menuItemId: jeyuk.id })).status,
+    200,
+  );
+  // Restaurants without menus still accept a plain visit plan.
+  const staff = await app.login("테스트강사");
+  assert.equal((await choose(staff, { restaurantId: 3 })).status, 200);
+
+  const mine = (await app.request("/dashboard", { cookie: ax })).data
+    .reservation;
+  assert.equal(mine.menu, "김치찌개");
+  assert.equal(mine.menu_price, 8000);
+
+  page = (await app.request("/restaurant?token=" + restaurantToken)).data;
+  assert.equal(page.count, 2);
+  assert.deepEqual(
+    page.orders.map((o) => [o.menu, o.name, o.track]),
+    [
+      ["제육덮밥", "SF학생", "SF"],
+      ["김치찌개", "AX학생", "AX"],
+    ],
+  );
+  assert.equal(JSON.stringify(page).includes("ax001"), false);
+  assert.equal(JSON.stringify(page).includes("테스트강사"), false);
+
+  // Removing a menu keeps existing reservations but blocks new ones.
+  assert.equal(
+    (
+      await app.request("/restaurant/menu/remove", {
+        method: "POST",
+        body: { token: restaurantToken, id: jeyuk.id },
+      })
+    ).status,
+    200,
+  );
+  page = (await app.request("/restaurant?token=" + restaurantToken)).data;
+  assert.deepEqual(
+    page.menuItems.map((m) => m.name),
+    ["김치찌개"],
+  );
+  assert.equal(page.orders.length, 2);
+  assert.equal(
+    (await choose(ax, { restaurantId: 1, menuItemId: jeyuk.id })).status,
+    404,
+  );
+
+  const admin = await app.login("테스트관리자");
+  const overview = (await app.request("/admin/overview", { cookie: admin }))
+    .data;
+  assert.deepEqual(
+    overview.reservations
+      .filter((r) => r.restaurant === "한끼식당")
+      .map((r) => [r.name, r.menu])
+      .sort(),
+    [
+      ["AX학생", "김치찌개"],
+      ["SF학생", "제육덮밥"],
+    ],
+  );
+
+  // Menu reservations stay open until noon, then close with everything else.
+  app.setTime("2026-10-12T11:50:00+09:00");
+  assert.equal(
+    (await choose(sf, { restaurantId: 1, menuItemId: kimchi.id })).status,
+    200,
+  );
+  app.setTime("2026-10-12T12:00:00+09:00");
+  assert.equal(
+    (await choose(sf, { restaurantId: 1, menuItemId: jeyuk.id })).status,
+    409,
+  );
+  app.setTime("2026-10-13T10:00:00+09:00");
+  page = (await app.request("/restaurant?token=" + restaurantToken)).data;
+  assert.equal(page.orders.length, 0);
+});
+
+test("학생이 메뉴를 직접 적어 예약하고 식당은 직접 입력으로 구분해 확인", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const token = (id) =>
+    app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=?")
+      .get(id)
+      .then((r) => r.access_token);
+  const pasta = await token(9);
+  await app.request("/restaurant/menu", {
+    method: "POST",
+    body: { token: pasta, name: "알리오올리오", price: 10000 },
+  });
+  const ax = await app.login("AX학생");
+  const sf = await app.login("SF학생");
+  const staff = await app.login("테스트강사");
+  const choose = (cookie, body) =>
+    app.request("/choice", { method: "POST", cookie, body });
+  assert.equal(
+    (await choose(ax, { restaurantId: 9, menuNote: "   " })).status,
+    400,
+  );
+  assert.equal(
+    (await choose(ax, { restaurantId: 9, menuNote: "x".repeat(61) })).status,
+    400,
+  );
+  assert.equal(
+    (await choose(ax, { restaurantId: 9, menuNote: " 까르보나라, 콜라 추가 " }))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await choose(ax, { restaurantId: 9, menuNote: "까르보나라, 콜라 추가" }))
+      .status,
+    409,
+  );
+  const mine = (await app.request("/dashboard", { cookie: ax })).data
+    .reservation;
+  assert.equal(mine.menu, "까르보나라, 콜라 추가");
+  assert.equal(mine.menu_item_id, null);
+  const item = (await app.request("/restaurant?token=" + pasta)).data
+    .menuItems[0];
+  // Choosing a registered menu clears any typed note.
+  assert.equal(
+    (
+      await choose(sf, {
+        restaurantId: 9,
+        menuItemId: item.id,
+        menuNote: "무시됨",
+      })
+    ).status,
+    200,
+  );
+  // Restaurants without registered menus accept a typed menu or none at all.
+  assert.equal(
+    (await choose(staff, { restaurantId: 2, menuNote: "비빔국수 곱빼기" }))
+      .status,
+    200,
+  );
+  const page = (await app.request("/restaurant?token=" + pasta)).data;
+  assert.deepEqual(
+    page.orders.map((o) => [o.menu, o.name, o.custom]),
+    [
+      ["알리오올리오", "SF학생", false],
+      ["까르보나라, 콜라 추가", "AX학생", true],
+    ],
+  );
+  assert.equal(JSON.stringify(page).includes("무시됨"), false);
+  const noodle = (await app.request("/restaurant?token=" + (await token(2))))
+    .data;
+  assert.deepEqual(
+    noodle.orders.map((o) => [o.menu, o.custom]),
+    [["비빔국수 곱빼기", true]],
+  );
+  // Switching to a plain visit clears the typed menu.
+  assert.equal((await choose(staff, { restaurantId: 3 })).status, 200);
+  assert.equal((await choose(staff, { restaurantId: 2 })).status, 200);
+  assert.equal(
+    (await app.request("/restaurant?token=" + (await token(2)))).data.orders
+      .length,
+    0,
+  );
+  const admin = await app.login("테스트관리자");
+  const overview = (await app.request("/admin/overview", { cookie: admin }))
+    .data.reservations;
+  assert.equal(
+    overview.find((r) => r.name === "AX학생").menu,
+    "까르보나라, 콜라 추가",
+  );
+  assert.equal(overview.find((r) => r.name === "테스트강사").menu, null);
+});
+
+test("식당에 요청사항 전달: 같은 식당 안에서는 유지, 식당을 바꾸면 초기화", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=2")
+      .get()
+  ).access_token;
+  const ax = await app.login("AX학생");
+  const request = (cookie, value) =>
+    app.request("/choice/request", {
+      method: "POST",
+      cookie,
+      body: { request: value },
+    });
+  assert.equal((await request(ax, "계란 빼주세요")).status, 404);
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 2 },
+  });
+  assert.equal((await request(ax, "x".repeat(101))).status, 400);
+  assert.equal(
+    (await request(ax, " SF학생, 테스트강사 같이 갑니다. 계란 빼주세요 "))
+      .status,
+    200,
+  );
+  let page = (await app.request("/restaurant?token=" + token)).data;
+  assert.deepEqual(page.orders.map(({ id, ...order }) => order), [
+    {
+      name: "AX학생",
+      track: "AX",
+      menu: null,
+      price: null,
+      request: "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+      reply: "",
+      party: null,
+      sides: [],
+      custom: false,
+    },
+  ]);
+  // Changing only the menu keeps the request.
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 2, menuNote: "비빔국수" },
+  });
+  page = (await app.request("/restaurant?token=" + token)).data;
+  assert.equal(page.orders[0].menu, "비빔국수");
+  assert.equal(page.orders[0].custom, true);
+  assert.equal(
+    page.orders[0].request,
+    "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+  );
+  const admin = await app.login("테스트관리자");
+  assert.equal(
+    (await app.request("/admin/overview", { cookie: admin })).data
+      .reservations[0].request,
+    "SF학생, 테스트강사 같이 갑니다. 계란 빼주세요",
+  );
+  // Moving to another restaurant drops the request meant for the old one.
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 3 },
+  });
+  assert.equal(
+    (await app.request("/dashboard", { cookie: ax })).data.reservation.request,
+    "",
+  );
+  assert.equal(
+    (await app.request("/restaurant?token=" + token)).data.orders.length,
+    0,
+  );
+  app.setTime("2026-10-12T12:00:00+09:00");
+  assert.equal((await request(ax, "늦은 요청")).status, 409);
+});
+
+test("식당은 자기 메뉴만 수정할 수 있고 기존 예약 명단에도 반영", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const token = async (id) =>
+    (
+      await app.db
+        .prepare("SELECT access_token FROM restaurants WHERE id=?")
+        .get(id)
+    ).access_token;
+  const mine = await token(1),
+    other = await token(2);
+  const menu = (body) =>
+    app.request("/restaurant/menu", { method: "POST", body });
+  await menu({ token: mine, name: "제육덮밥", price: 9000 });
+  const item = (await app.request("/restaurant?token=" + mine)).data
+    .menuItems[0];
+  const ax = await app.login("AX학생");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: ax,
+    body: { restaurantId: 1, menuItemId: item.id },
+  });
+  assert.equal(
+    (await menu({ token: other, id: item.id, name: "가로채기", price: 1 }))
+      .status,
+    404,
+  );
+  assert.equal(
+    (await menu({ token: mine, id: item.id, name: "", price: 9000 })).status,
+    400,
+  );
+  assert.equal(
+    (await menu({ token: mine, id: "1", name: "제육", price: 9000 })).status,
+    400,
+  );
+  assert.equal(
+    (await menu({ token: mine, id: item.id, name: "제육볶음 덮밥", price: 9500 }))
+      .status,
+    200,
+  );
+  const page = (await app.request("/restaurant?token=" + mine)).data;
+  assert.deepEqual(
+    page.menuItems.map((m) => [m.id, m.name, m.price]),
+    [[item.id, "제육볶음 덮밥", 9500]],
+  );
+  assert.equal(page.orders[0].menu, "제육볶음 덮밥");
+  assert.equal(
+    (await app.request("/dashboard", { cookie: ax })).data.reservation
+      .menu_price,
+    9500,
+  );
+  await app.request("/restaurant/menu/remove", {
+    method: "POST",
+    body: { token: mine, id: item.id },
+  });
+  assert.equal(
+    (await menu({ token: mine, id: item.id, name: "되살리기", price: 0 }))
+      .status,
+    404,
+  );
+});
