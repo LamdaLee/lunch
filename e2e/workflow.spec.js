@@ -212,7 +212,10 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
     0,
   );
   await expect(restaurant).toHaveURL(/\/restaurant$/);
-  await expect(restaurant.locator("form")).toHaveCount(0);
+  // The restaurant page only edits its own people limit and menu.
+  await expect(restaurant.locator("form")).toHaveCount(2);
+  await expect(restaurant.locator("#restaurant-limit-form")).toBeVisible();
+  await expect(restaurant.locator("#restaurant-menu-form")).toBeVisible();
   await restaurant.screenshot({
     path: ".local/screenshots/restaurant.png",
     fullPage: true,
@@ -504,4 +507,393 @@ test("만석 후 식사 기록 수정과 좌석 미확보 안내", async ({ page
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예약 명단 확인, 게시판 댓글", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const restaurant = await context.newPage();
+  restaurant.on("pageerror", (e) => errors.push(e.message));
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  await restaurant.getByLabel("메뉴 이름").fill("제육덮밥");
+  await restaurant.getByLabel("가격").fill("9000");
+  await restaurant.getByRole("button", { name: "메뉴 추가" }).click();
+  await expect(restaurant.locator(".menu-items")).toContainText("제육덮밥");
+  await restaurant.getByLabel("메뉴 이름").fill("김치찌개");
+  await restaurant.getByRole("button", { name: "메뉴 추가" }).click();
+  await expect(restaurant.locator(".menu-items li")).toHaveCount(2);
+  await restaurant.getByRole("button", { name: "김치찌개 수정" }).click();
+  await restaurant.locator("#menu-edit-form [name=name]").fill("김치찌개 정식");
+  await restaurant.locator("#menu-edit-form [name=price]").fill("8500");
+  await restaurant.getByRole("button", { name: "저장하기" }).click();
+  await expect(restaurant.locator(".menu-items")).toContainText(
+    "김치찌개 정식 8,500원",
+  );
+  await restaurant.getByRole("button", { name: "김치찌개 정식 수정" }).click();
+  await restaurant.locator("#menu-edit-form [name=name]").fill("김치찌개");
+  await restaurant.locator("#menu-edit-form [name=price]").fill("");
+  await restaurant.getByRole("button", { name: "저장하기" }).click();
+  await expect(
+    restaurant.getByRole("button", { name: "김치찌개 수정" }),
+  ).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await expect(page.locator("#toast")).toHaveText(
+    "예약할 메뉴를 먼저 골라주세요.",
+  );
+  await card.getByLabel("예약할 메뉴").selectOption({ label: "제육덮밥 · 9,000원" });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "제육덮밥 · 9,000원",
+  );
+  await card.getByLabel("예약할 메뉴").selectOption({ label: "김치찌개" });
+  await card.getByRole("button", { name: "예약 변경 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText("김치찌개");
+  await card.getByRole("button", { name: "한끼식당 선택 취소" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "아직 선택한 식당이 없어요.",
+  );
+  await expect(card.locator(".card-cancel")).toHaveCount(0);
+  await card.getByLabel("예약할 메뉴").selectOption({ label: "김치찌개" });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await expect(card.locator(".card-cancel")).toBeVisible();
+  // Typed menus for restaurants with many dishes.
+  await expect(card.locator(".menu-note")).toBeHidden();
+  await card.getByLabel("예약할 메뉴").selectOption({ label: "직접 입력" });
+  await card.getByLabel("메뉴 직접 적기").fill("제육 곱빼기, 계란후라이 추가");
+  await card.getByRole("button", { name: "예약 변경 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "제육 곱빼기, 계란후라이 추가",
+  );
+  await expect(card.getByLabel("메뉴 직접 적기")).toHaveValue(
+    "제육 곱빼기, 계란후라이 추가",
+  );
+  await card.getByLabel("식당에 전할 요청사항").fill("3명 같이 가요. 계란 빼주세요");
+  await card.getByRole("button", { name: "요청사항 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "3명 같이 가요. 계란 빼주세요",
+  );
+  await page.screenshot({
+    path: ".local/screenshots/custom-menu-card.png",
+    fullPage: false,
+  });
+
+  await restaurant.getByRole("button", { name: "↻ 새로고침" }).click();
+  const orders = restaurant.locator(".restaurant-orders");
+  await expect(orders).toContainText("AX학생");
+  await expect(orders).toContainText("제육 곱빼기, 계란후라이 추가");
+  await expect(orders).toContainText("직접 입력");
+  await expect(orders.locator(".order-request")).toContainText(
+    "3명 같이 가요. 계란 빼주세요",
+  );
+  await expect(orders).not.toContainText("ax001");
+  expect(
+    await restaurant.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await restaurant.getByLabel("최대 인원").fill("1");
+  await restaurant.getByRole("button", { name: "인원 제한 저장" }).click();
+  await expect(restaurant.locator(".limit-now")).toContainText("최대 1명");
+  await expect(restaurant.locator(".count")).toContainText("1명 / 1명");
+  await page.getByRole("button", { name: "오늘의 식당" }).click();
+  await expect(card.locator(".capacity")).toContainText("/ 최대 1명");
+  await restaurant.screenshot({
+    path: ".local/screenshots/restaurant-orders.png",
+    fullPage: true,
+  });
+
+  await page.getByRole("button", { name: "우리의 게시판" }).click();
+  await page.getByLabel("게시글 제목").fill("같이 가요");
+  await page.locator("#post-body").fill("한끼식당 12:50");
+  await page.getByRole("button", { name: "게시하기 ↗" }).click();
+  const post = page.locator(".post").first();
+  await post.getByPlaceholder("댓글을 남겨주세요").fill("<b>좋아요</b>");
+  await post.getByRole("button", { name: "등록" }).click();
+  await expect(page.locator(".comment-body")).toHaveText("<b>좋아요</b>");
+  await expect(page.locator(".comments h4")).toContainText("1");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.screenshot({
+    path: ".local/screenshots/board-comments.png",
+    fullPage: true,
+  });
+  await page.locator(".comment").getByRole("button", { name: "댓글 삭제" }).click();
+  await page.locator("#confirm-yes").click();
+  await expect(page.locator(".comment")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("오늘의 채팅: 다른 사람 메시지가 몇 초 안에 보이고 삭제도 반영", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const other = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  other.on("pageerror", (e) => errors.push(e.message));
+  await other.goto(app.base);
+  await other.getByLabel("학번 / 로그인 ID", { exact: true }).fill("sf001");
+  await other.getByLabel("비밀번호", { exact: true }).fill(testPassword);
+  await other.getByRole("button", { name: "로그인", exact: true }).click();
+
+  // The chat sits between the page heading and the snack coupon banner.
+  const order = await page.evaluate(() => {
+    const top = (selector) =>
+      document.querySelector(selector).getBoundingClientRect().top;
+    return [top(".hero h1"), top("#chat-panel"), top(".mission-banner")];
+  });
+  expect(order[0]).toBeLessThan(order[1]);
+  expect(order[1]).toBeLessThan(order[2]);
+
+  await page.getByLabel("메시지 입력").fill("12:50에 파스토보이 가실 분?");
+  await page.getByRole("button", { name: "보내기" }).click();
+  await expect(page.locator(".chat-message.mine")).toContainText(
+    "12:50에 파스토보이 가실 분?",
+  );
+  await expect(other.locator(".chat-message")).toContainText(
+    "12:50에 파스토보이 가실 분?",
+    { timeout: 8000 },
+  );
+  await other.getByLabel("메시지 입력").fill("저요! <b>같이</b> 가요");
+  await other.getByLabel("메시지 입력").press("Enter");
+  await expect(page.locator(".chat-message").nth(1)).toHaveText(
+    /저요! <b>같이<\/b> 가요/,
+    { timeout: 8000 },
+  );
+  await expect(
+    other.locator(".chat-message").first().getByRole("button", { name: "메시지 삭제" }),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await page.locator("#chat-panel").screenshot({
+    path: ".local/screenshots/chat.png",
+  });
+
+  await page
+    .locator(".chat-message.mine")
+    .getByRole("button", { name: "메시지 삭제" })
+    .click();
+  await page.locator("#confirm-yes").click();
+  await expect(page.locator(".chat-message")).toHaveCount(1);
+  await expect(other.locator(".chat-message")).toHaveCount(1, {
+    timeout: 8000,
+  });
+  expect(errors).toEqual([]);
+  await other.close();
+});
+
+test("같은 식당을 고른 사람과 일행으로 묶으면 식당 화면에 일행별로 표시", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  const sf = await app.login("SF학생");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: sf,
+    body: { restaurantId: 1 },
+  });
+  const staff = await app.login("테스트강사");
+  await app.request("/choice", {
+    method: "POST",
+    cookie: staff,
+    body: { restaurantId: 1 },
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  const box = card.locator(".party-box");
+  await expect(box).toContainText("SF학생");
+  await box.getByLabel("SF학생").check();
+  await box.getByRole("button", { name: "일행으로 묶기" }).click();
+  await expect(box.locator(".party-now")).toContainText("SF학생");
+  await expect(box.locator(".party-now")).toContainText("나 포함 2명");
+  await expect(page.locator(".reservation-summary")).toContainText("나 포함 2명");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await card.screenshot({ path: ".local/screenshots/party-card.png" });
+
+  const restaurant = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  const orders = restaurant.locator(".restaurant-orders");
+  await expect(orders.locator(".party-summary")).toContainText("일행 1팀");
+  await expect(orders.locator(".party-summary")).toContainText("혼자 1명");
+  const group = orders.locator(".party-group").first();
+  await expect(group).toContainText("일행 1");
+  await expect(group).toContainText("AX학생");
+  await expect(group).toContainText("SF학생");
+  await expect(orders.locator(".party-group.solo")).toContainText(
+    "메뉴·요청 없이 혼자 오는 손님 1명",
+  );
+  await orders.screenshot({ path: ".local/screenshots/party-orders.png" });
+
+  await box.getByRole("button", { name: "일행에서 나가기" }).click();
+  await expect(box.locator(".party-now")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await restaurant.close();
+});
+
+test("식당이 요청사항에 답하면 학생 화면에 식당 답변과 알림이 보임", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await card.getByLabel("식당에 전할 요청사항").fill("계란 빼주세요");
+  await card.getByRole("button", { name: "요청사항 저장" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "계란 빼주세요",
+  );
+
+  const restaurant = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  restaurant.on("pageerror", (e) => errors.push(e.message));
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  const request = restaurant.locator(".order-request");
+  await expect(request).toContainText("계란 빼주세요");
+  await request.getByRole("button", { name: "확인했어요" }).click();
+  await expect(request.locator(".reply-now")).toContainText("확인했어요");
+  await request.getByLabel("AX학생 요청에 답변").fill("계란 빼 드릴게요");
+  await request.getByRole("button", { name: "보내기" }).click();
+  await expect(request.locator(".reply-now")).toContainText("계란 빼 드릴게요");
+  expect(
+    await restaurant.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await restaurant
+    .locator(".restaurant-orders")
+    .screenshot({ path: ".local/screenshots/reply-restaurant.png" });
+
+  await page.getByRole("button", { name: "↻ 새로고침" }).first().click();
+  await expect(page.locator("#toast")).toHaveText(
+    "식당에서 답변이 왔어요: 계란 빼 드릴게요",
+  );
+  await expect(card.locator(".restaurant-reply")).toContainText(
+    "계란 빼 드릴게요",
+  );
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "계란 빼 드릴게요",
+  );
+  await card.screenshot({ path: ".local/screenshots/reply-card.png" });
+  expect(errors).toEqual([]);
+  await restaurant.close();
+});
+
+test("사이드 메뉴를 여러 개 골라 예약하면 합계와 식권 초과 금액이 보이고 식당에도 표시", async ({
+  page,
+  browser,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const token = (
+    await app.db
+      .prepare("SELECT access_token FROM restaurants WHERE id=1")
+      .get()
+  ).access_token;
+  const restaurant = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  restaurant.on("pageerror", (e) => errors.push(e.message));
+  await restaurant.goto(`${app.base}/restaurant?token=${token}`);
+  const addMenu = async (name, price, kind) => {
+    const form = restaurant.locator("#restaurant-menu-form");
+    await form.getByLabel("메뉴 이름").fill(name);
+    await form.getByLabel("가격").fill(String(price));
+    await form.getByLabel("종류").selectOption(kind);
+    await form.getByRole("button", { name: "메뉴 추가" }).click();
+    await expect(restaurant.locator(".menu-items")).toContainText(name);
+  };
+  await addMenu("제육덮밥", 9000, "main");
+  await addMenu("계란찜", 2000, "side");
+  await addMenu("콜라", 1500, "side");
+  await expect(
+    restaurant.locator(".menu-items li").filter({ hasText: "계란찜" }),
+  ).toContainText("사이드");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const card = page
+    .locator(".restaurant-card")
+    .filter({ has: page.getByRole("heading", { name: "한끼식당" }) });
+  await card
+    .getByLabel("예약할 메뉴")
+    .selectOption({ label: "제육덮밥 · 9,000원" });
+  await expect(card.locator(".price-total")).toHaveText(
+    "합계 9,000원 · 식권 한도 안",
+  );
+  await card.getByLabel("계란찜 · 2,000원").check();
+  await card.getByLabel("콜라 · 1,500원").check();
+  await expect(card.locator(".price-total")).toHaveText(
+    "합계 12,500원 · 식권 초과 1,500원은 직접 결제",
+  );
+  await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "계란찜 · 2,000원, 콜라 · 1,500원",
+  );
+  // After reload the saved sides stay checked.
+  await expect(card.getByLabel("계란찜 · 2,000원")).toBeChecked();
+  await expect(card.locator(".price-total")).toHaveText(
+    "합계 12,500원 · 식권 초과 1,500원은 직접 결제",
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await card.screenshot({ path: ".local/screenshots/sides-card.png" });
+
+  await restaurant.getByRole("button", { name: "↻ 새로고침" }).click();
+  const orders = restaurant.locator(".restaurant-orders");
+  await expect(orders.locator(".order-sides")).toHaveText("+ 계란찜, 콜라");
+  await expect(orders.locator(".track-counts").nth(1)).toContainText(
+    "계란찜 1개",
+  );
+  await orders.screenshot({ path: ".local/screenshots/sides-orders.png" });
+  expect(errors).toEqual([]);
+  await restaurant.close();
 });

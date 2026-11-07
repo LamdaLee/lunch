@@ -297,17 +297,120 @@ export function createApp({
             );
             return send(200, { ok: true });
           }
-          if (path === "/api/restaurant" && req.method === "GET") {
-            const restaurant = await db
+          // A party is today's group at one restaurant; its id is a member's reservation id.
+          const tidyParty = async (partyId) => {
+            if (partyId === null || partyId === undefined) return;
+            const { n } = await db
+              .prepare("SELECT COUNT(*) n FROM reservations WHERE party_id=?")
+              .get(partyId);
+            if (Number(n) <= 1)
+              await db
+                .prepare("UPDATE reservations SET party_id=NULL WHERE party_id=?")
+                .run(partyId);
+          };
+          // Side dishes per reservation, as Map(reservation id -> [{id,name,price}]).
+          const sidesOf = async (where, values) => {
+            const rows = await db
               .prepare(
-                "SELECT id,name,description,menu FROM restaurants WHERE access_token=?",
+                `SELECT s.reservation_id,mi.id,mi.name,mi.price FROM reservation_sides s JOIN reservations r ON r.id=s.reservation_id JOIN menu_items mi ON mi.id=s.menu_item_id WHERE ${where} ORDER BY mi.id`,
               )
-              .get(url.searchParams.get("token") || "");
-            if (!restaurant)
-              fail(
-                404,
-                "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.",
+              .all(...values);
+            const map = new Map();
+            for (const { reservation_id, ...side } of rows)
+              map.set(reservation_id, [...(map.get(reservation_id) || []), side]);
+            return map;
+          };
+          const restaurantByToken = async (value) =>
+            (typeof value === "string" &&
+              (await db
+                .prepare(
+                  "SELECT id,name,description,menu,max_people FROM restaurants WHERE access_token=?",
+                )
+                .get(value))) ||
+            fail(404, "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.");
+          if (path === "/api/restaurant/menu" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            const name = cleanText(body.name, 40, "메뉴 이름");
+            const price = body.price ?? 0;
+            if (!Number.isInteger(price) || price < 0 || price > 100000)
+              fail(400, "가격은 0~100,000원 사이의 숫자로 입력해주세요.");
+            if (body.kind !== undefined && !["main", "side"].includes(body.kind))
+              fail(400, "메뉴 종류는 메인 또는 사이드로 골라주세요.");
+            if (body.id !== undefined) {
+              if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
+              const result = await db
+                .prepare(
+                  "UPDATE menu_items SET name=?,price=?,kind=COALESCE(?,kind) WHERE id=? AND restaurant_id=? AND active=1",
+                )
+                .run(name, price, body.kind ?? null, body.id, restaurant.id);
+              if (!result.changes) fail(404, "메뉴를 찾을 수 없습니다.");
+              return send(200, { ok: true });
+            }
+            const { n } = await db
+              .prepare(
+                "SELECT COUNT(*) n FROM menu_items WHERE restaurant_id=? AND active=1",
+              )
+              .get(restaurant.id);
+            if (Number(n) >= 30)
+              fail(409, "메뉴는 최대 30개까지 등록할 수 있습니다.");
+            await db
+              .prepare(
+                "INSERT INTO menu_items(restaurant_id,name,price,kind) VALUES (?,?,?,?)",
+              )
+              .run(restaurant.id, name, price, body.kind ?? "main");
+            return send(201, { ok: true });
+          }
+          const maxPeopleOf = (value) =>
+            Number.isInteger(value) && value >= 0 && value <= 500
+              ? value
+              : fail(400, "최대 인원은 0~500명으로 입력해주세요. 0은 제한 없음입니다.");
+          if (path === "/api/restaurant/limit" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            await db
+              .prepare("UPDATE restaurants SET max_people=? WHERE id=?")
+              .run(maxPeopleOf(body.maxPeople), restaurant.id);
+            return send(200, { ok: true });
+          }
+          if (path === "/api/restaurant/reply" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            // Restaurants can answer until lunch starts at 12:50.
+            if (clock.minute < 540 || clock.minute >= 770)
+              fail(409, "답변은 오전 9시부터 12시 50분까지 보낼 수 있어요.");
+            if (!Number.isInteger(body.reservationId))
+              fail(400, "답변할 요청을 확인해주세요.");
+            if (typeof body.reply !== "string" || body.reply.trim().length > 100)
+              fail(400, "답변은 100자 이내로 입력해주세요.");
+            const reply = body.reply.trim();
+            const result = await db
+              .prepare(
+                "UPDATE reservations SET reply=?,reply_at=? WHERE id=? AND restaurant_id=? AND day=? AND request<>''",
+              )
+              .run(
+                reply,
+                reply ? now().toISOString() : null,
+                body.reservationId,
+                restaurant.id,
+                clock.day,
               );
+            if (!result.changes) fail(404, "답변할 요청을 찾을 수 없습니다.");
+            return send(200, { ok: true });
+          }
+          if (path === "/api/restaurant/menu/remove" && req.method === "POST") {
+            const restaurant = await restaurantByToken(body.token);
+            if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
+            // Keep the row so existing reservations still show the menu name.
+            const result = await db
+              .prepare(
+                "UPDATE menu_items SET active=0 WHERE id=? AND restaurant_id=? AND active=1",
+              )
+              .run(body.id, restaurant.id);
+            if (!result.changes) fail(404, "메뉴를 찾을 수 없습니다.");
+            return send(200, { ok: true });
+          }
+          if (path === "/api/restaurant" && req.method === "GET") {
+            const restaurant = await restaurantByToken(
+              url.searchParams.get("token") || "",
+            );
             const totals = await db
               .prepare(
                 `SELECT u.track, COUNT(*) count FROM reservations r JOIN users u ON u.id=r.user_id WHERE r.restaurant_id=? AND r.day=? GROUP BY u.track`,
@@ -318,6 +421,10 @@ export function createApp({
                 `SELECT u.track, COUNT(*) count FROM meal_records m JOIN users u ON u.id=m.user_id WHERE m.restaurant_id=? AND m.day=? GROUP BY u.track`,
               )
               .all(restaurant.id, clock.day);
+            const sidesByReservation = await sidesOf(
+              "r.restaurant_id=? AND r.day=?",
+              [restaurant.id, clock.day],
+            );
             const changedAway = await db
               .prepare(
                 `SELECT COUNT(*) count FROM reservations r JOIN meal_records m ON m.user_id=r.user_id AND m.day=r.day WHERE r.restaurant_id=? AND r.day=? AND m.restaurant_id<>r.restaurant_id`,
@@ -333,6 +440,24 @@ export function createApp({
                 0,
               ),
               changedAwayCount: changedAway.count,
+              replyOpen: clock.minute >= 540 && clock.minute < 770,
+              menuItems: await db
+                .prepare(
+                  "SELECT id,name,price,kind FROM menu_items WHERE restaurant_id=? AND active=1 ORDER BY kind='side',id",
+                )
+                .all(restaurant.id),
+              // Only people who pre-ordered a menu are listed by name; login IDs stay hidden.
+              orders: (
+                await db
+                  .prepare(
+                    "SELECT r.id,u.name,u.track,COALESCE(mi.name,NULLIF(r.menu_note,'')) menu,mi.price,r.menu_item_id,r.request,r.reply,r.party_id party FROM reservations r JOIN users u ON u.id=r.user_id LEFT JOIN menu_items mi ON mi.id=r.menu_item_id WHERE r.restaurant_id=? AND r.day=? AND (r.menu_item_id IS NOT NULL OR r.menu_note<>'' OR r.request<>'' OR r.party_id IS NOT NULL OR EXISTS (SELECT 1 FROM reservation_sides s WHERE s.reservation_id=r.id)) ORDER BY r.party_id IS NULL,r.party_id,r.menu_item_id IS NULL,mi.id,u.track,u.name",
+                  )
+                  .all(restaurant.id, clock.day)
+              ).map(({ menu_item_id, ...order }) => ({
+                ...order,
+                sides: sidesByReservation.get(order.id) || [],
+                custom: menu_item_id === null && order.menu !== null,
+              })),
               clock,
             });
           }
@@ -573,24 +698,53 @@ export function createApp({
           if (path === "/api/dashboard" && req.method === "GET") {
             const restaurants = await db
               .prepare(
-                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.category,r.listed, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
+                `SELECT r.id,r.name,r.description,r.menu,r.naver_url,r.category,r.listed,r.max_people, COUNT(b.id) count FROM restaurants r LEFT JOIN reservations b ON b.restaurant_id=r.id AND b.day=? WHERE r.listed=1 GROUP BY r.id ORDER BY r.id`,
               )
               .all(clock.day);
             const reservation =
               (await db
                 .prepare(
-                  "SELECT b.id,b.restaurant_id,r.name FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id WHERE b.user_id=? AND b.day=?",
+                  "SELECT b.id,b.restaurant_id,b.menu_item_id,b.menu_note,b.request,b.reply,b.reply_at,b.party_id,r.name,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,mi.price menu_price FROM reservations b JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id WHERE b.user_id=? AND b.day=?",
                 )
                 .get(user.id, clock.day)) || null;
+            if (reservation)
+              reservation.sides =
+                (await sidesOf("r.id=?", [reservation.id])).get(
+                  reservation.id,
+                ) || [];
             const totals = await db
               .prepare(
                 "SELECT b.restaurant_id,u.track,COUNT(*) count FROM reservations b JOIN users u ON u.id=b.user_id WHERE b.day=? GROUP BY b.restaurant_id,u.track",
               )
               .all(clock.day);
-            for (const restaurant of restaurants)
+            const menuItems = await db
+              .prepare(
+                "SELECT id,restaurant_id,name,price,kind FROM menu_items WHERE active=1 ORDER BY kind='side',id",
+              )
+              .all();
+            for (const restaurant of restaurants) {
               restaurant.totals = totals
                 .filter((row) => row.restaurant_id === restaurant.id)
                 .map(({ track, count }) => ({ track, count }));
+              restaurant.menuItems = menuItems
+                .filter((item) => item.restaurant_id === restaurant.id)
+                .map(({ id, name, price, kind }) => ({ id, name, price, kind }));
+            }
+            // People at my restaurant today, so I can form a party with them.
+            const companions = reservation
+              ? (
+                  await db
+                    .prepare(
+                      "SELECT u.id user_id,u.name,u.track,b.party_id FROM reservations b JOIN users u ON u.id=b.user_id WHERE b.restaurant_id=? AND b.day=? AND b.user_id<>? ORDER BY u.track,u.name",
+                    )
+                    .all(reservation.restaurant_id, clock.day, user.id)
+                ).map(({ party_id, ...person }) => ({
+                  ...person,
+                  inMyParty:
+                    reservation.party_id !== null &&
+                    party_id === reservation.party_id,
+                }))
+              : [];
             const start = new Date(`${clock.day}T00:00:00+09:00`);
             const end = new Date(start.getTime() + 86400000);
             const todayPosts = (
@@ -614,6 +768,7 @@ export function createApp({
               todayPosts,
               restaurants,
               reservation,
+              companions,
               choice: reservation,
               clock,
               user,
@@ -632,17 +787,138 @@ export function createApp({
                 .prepare("SELECT * FROM restaurants WHERE id=? AND listed=1")
                 .get(body.restaurantId);
               if (!restaurant) fail(404, "현재 선택할 수 없는 식당입니다.");
+              const menuItemId = body.menuItemId ?? null;
+              if (menuItemId !== null && !Number.isInteger(menuItemId))
+                fail(400, "메뉴를 확인해주세요.");
+              if (
+                body.menuNote !== undefined &&
+                (typeof body.menuNote !== "string" ||
+                  body.menuNote.trim().length > 60)
+              )
+                fail(400, "직접 적는 메뉴는 60자 이내로 입력해주세요.");
+              // A registered menu wins over a typed note; never store both.
+              const menuNote =
+                menuItemId === null ? (body.menuNote || "").trim() : "";
+              if (
+                menuItemId === null &&
+                !menuNote &&
+                (await db
+                  .prepare(
+                    "SELECT id FROM menu_items WHERE restaurant_id=? AND active=1 AND kind='main' LIMIT 1",
+                  )
+                  .get(restaurant.id))
+              )
+                fail(400, "예약할 메뉴를 고르거나 직접 적어주세요.");
+              if (
+                menuItemId !== null &&
+                !(await db
+                  .prepare(
+                    "SELECT id FROM menu_items WHERE id=? AND restaurant_id=? AND active=1 AND kind='main'",
+                  )
+                  .get(menuItemId, restaurant.id))
+              )
+                fail(404, "현재 예약할 수 없는 메뉴입니다.");
+              const sideIds = body.sideIds ?? [];
+              if (
+                !Array.isArray(sideIds) ||
+                sideIds.length > 10 ||
+                !sideIds.every(Number.isInteger) ||
+                new Set(sideIds).size !== sideIds.length
+              )
+                fail(400, "사이드 메뉴는 10개까지 골라주세요.");
+              for (const sideId of sideIds)
+                if (
+                  !(await db
+                    .prepare(
+                      "SELECT id FROM menu_items WHERE id=? AND restaurant_id=? AND active=1 AND kind='side'",
+                    )
+                    .get(sideId, restaurant.id))
+                )
+                  fail(404, "현재 고를 수 없는 사이드 메뉴입니다.");
+              const sideKey = [...sideIds].sort((a, b) => a - b).join(",");
               const existing = await db
                 .prepare("SELECT * FROM reservations WHERE user_id=? AND day=?")
                 .get(user.id, clock.day);
-              if (existing?.restaurant_id === restaurant.id)
-                fail(409, "이미 선택한 식당입니다.");
+              // Runs inside the write transaction, so concurrent picks cannot overfill.
+              if (
+                restaurant.max_people > 0 &&
+                existing?.restaurant_id !== restaurant.id
+              ) {
+                const { n } = await db
+                  .prepare(
+                    "SELECT COUNT(*) n FROM reservations WHERE restaurant_id=? AND day=?",
+                  )
+                  .get(restaurant.id, clock.day);
+                if (Number(n) >= restaurant.max_people)
+                  fail(
+                    409,
+                    `${restaurant.name}은(는) 오늘 정원 ${restaurant.max_people}명이 다 찼어요. 다른 식당을 선택해주세요.`,
+                  );
+              }
+              if (
+                existing?.restaurant_id === restaurant.id &&
+                (existing.menu_item_id ?? null) === menuItemId &&
+                (existing.menu_note || "") === menuNote &&
+                (
+                  await db
+                    .prepare(
+                      "SELECT menu_item_id FROM reservation_sides WHERE reservation_id=? ORDER BY menu_item_id",
+                    )
+                    .all(existing.id)
+                )
+                  .map((s) => s.menu_item_id)
+                  .join(",") === sideKey
+              )
+                fail(409, "이미 같은 식당·메뉴로 선택했어요.");
               await db
                 .prepare(
-                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at) VALUES (?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET restaurant_id=excluded.restaurant_id,created_at=excluded.created_at`,
+                  `INSERT INTO reservations(user_id,restaurant_id,day,created_at,menu_item_id,menu_note) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,day) DO UPDATE SET request=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.request ELSE '' END,reply=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.reply ELSE '' END,reply_at=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.reply_at ELSE NULL END,party_id=CASE WHEN reservations.restaurant_id=excluded.restaurant_id THEN reservations.party_id ELSE NULL END,restaurant_id=excluded.restaurant_id,created_at=excluded.created_at,menu_item_id=excluded.menu_item_id,menu_note=excluded.menu_note`,
                 )
-                .run(user.id, restaurant.id, clock.day, now().toISOString());
+                .run(
+                  user.id,
+                  restaurant.id,
+                  clock.day,
+                  now().toISOString(),
+                  menuItemId,
+                  menuNote,
+                );
+              if (existing && existing.restaurant_id !== restaurant.id)
+                await tidyParty(existing.party_id);
+              const saved = await db
+                .prepare("SELECT id FROM reservations WHERE user_id=? AND day=?")
+                .get(user.id, clock.day);
+              await db
+                .prepare("DELETE FROM reservation_sides WHERE reservation_id=?")
+                .run(saved.id);
+              for (const sideId of sideIds)
+                await db
+                  .prepare(
+                    "INSERT INTO reservation_sides(reservation_id,menu_item_id) VALUES (?,?)",
+                  )
+                  .run(saved.id, sideId);
             }
+            return send(200, { ok: true });
+          }
+          if (path === "/api/choice/request" && req.method === "POST") {
+            requireOpen();
+            if (
+              typeof body.request !== "string" ||
+              body.request.trim().length > 100
+            )
+              fail(400, "요청사항은 100자 이내로 입력해주세요.");
+            const result = await db
+              .prepare(
+                "UPDATE reservations SET reply=CASE WHEN request=? THEN reply ELSE '' END,reply_at=CASE WHEN request=? THEN reply_at ELSE NULL END,request=? WHERE user_id=? AND day=?",
+              )
+              .run(
+                body.request.trim(),
+                body.request.trim(),
+                body.request.trim(),
+                user.id,
+                clock.day,
+              );
+            if (!result.changes)
+              fail(404, "먼저 오늘 갈 식당을 선택해주세요.");
             return send(200, { ok: true });
           }
           if (
@@ -650,19 +926,97 @@ export function createApp({
             req.method === "DELETE"
           ) {
             requireOpen();
+            const existing = await db
+              .prepare(
+                "SELECT id,party_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, clock.day);
+            if (existing)
+              await db
+                .prepare("DELETE FROM reservation_sides WHERE reservation_id=?")
+                .run(existing.id);
             await db
               .prepare("DELETE FROM reservations WHERE user_id=? AND day=?")
               .run(user.id, clock.day);
+            await tidyParty(existing?.party_id);
             return send(200, { ok: true });
           }
-          if (path === "/api/posts" && req.method === "GET")
-            return send(200, {
-              posts: await db
+          if (path === "/api/party" && req.method === "POST") {
+            requireOpen();
+            if (
+              !Array.isArray(body.memberIds) ||
+              !body.memberIds.length ||
+              body.memberIds.length > 30 ||
+              !body.memberIds.every(Number.isInteger)
+            )
+              fail(400, "같이 가는 사람을 1~30명 골라주세요.");
+            const mine = await db
+              .prepare(
+                "SELECT id,restaurant_id,party_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, clock.day);
+            if (!mine) fail(404, "먼저 오늘 갈 식당을 선택해주세요.");
+            const members = [];
+            for (const memberId of new Set(body.memberIds)) {
+              if (memberId === user.id) continue;
+              const member = await db
                 .prepare(
-                  "SELECT p.id,p.user_id,p.title,p.body,p.pinned,p.created_at,u.name,u.track,u.role FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.pinned DESC,p.id DESC LIMIT 100",
+                  "SELECT id,party_id FROM reservations WHERE user_id=? AND day=? AND restaurant_id=?",
                 )
-                .all(),
-            });
+                .get(memberId, clock.day, mine.restaurant_id);
+              if (!member)
+                fail(409, "같은 식당을 고른 사람만 일행으로 묶을 수 있어요.");
+              members.push(member);
+            }
+            if (!members.length) fail(400, "같이 가는 사람을 골라주세요.");
+            // Joining someone already in a party merges both parties into one.
+            const parties = [mine, ...members]
+              .map((r) => r.party_id)
+              .filter((id) => id !== null);
+            const partyId = parties[0] ?? mine.id;
+            for (const old of new Set(parties))
+              await db
+                .prepare("UPDATE reservations SET party_id=? WHERE party_id=?")
+                .run(partyId, old);
+            for (const r of [mine, ...members])
+              await db
+                .prepare("UPDATE reservations SET party_id=? WHERE id=?")
+                .run(partyId, r.id);
+            return send(200, { ok: true });
+          }
+          if (path === "/api/party/leave" && req.method === "POST") {
+            requireOpen();
+            const mine = await db
+              .prepare(
+                "SELECT id,party_id FROM reservations WHERE user_id=? AND day=?",
+              )
+              .get(user.id, clock.day);
+            if (!mine?.party_id) fail(404, "지금 속한 일행이 없어요.");
+            await db
+              .prepare("UPDATE reservations SET party_id=NULL WHERE id=?")
+              .run(mine.id);
+            await tidyParty(mine.party_id);
+            return send(200, { ok: true });
+          }
+          const commentsOf = async (postIds) => {
+            if (!postIds.length) return [];
+            return db
+              .prepare(
+                `SELECT c.id,c.post_id,c.user_id,c.body,c.created_at,u.name,u.track FROM post_comments c JOIN users u ON u.id=c.user_id WHERE c.post_id IN (${postIds.map(() => "?").join(",")}) ORDER BY c.id`,
+              )
+              .all(...postIds);
+          };
+          if (path === "/api/posts" && req.method === "GET") {
+            const posts = await db
+              .prepare(
+                "SELECT p.id,p.user_id,p.title,p.body,p.pinned,p.created_at,u.name,u.track,u.role FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.pinned DESC,p.id DESC LIMIT 100",
+              )
+              .all();
+            const comments = await commentsOf(posts.map((p) => p.id));
+            for (const post of posts)
+              post.comments = comments.filter((c) => c.post_id === post.id);
+            return send(200, { posts });
+          }
           if (path === "/api/posts" && req.method === "POST") {
             const bodyText = cleanText(body.body, 1000, "게시글");
             const title =
@@ -700,7 +1054,46 @@ export function createApp({
               )
               .get(Number(postMatch[1]));
             if (!post) fail(404, "게시글을 찾을 수 없습니다.");
+            post.comments = await commentsOf([post.id]);
             return send(200, { post });
+          }
+          const commentsMatch = path.match(/^\/api\/posts\/(\d+)\/comments$/);
+          if (commentsMatch && req.method === "POST") {
+            const postId = Number(commentsMatch[1]);
+            const commentText = cleanText(body.body, 500, "댓글");
+            if (
+              !(await db.prepare("SELECT id FROM posts WHERE id=?").get(postId))
+            )
+              fail(404, "게시글을 찾을 수 없습니다.");
+            const recent = await db
+              .prepare(
+                "SELECT created_at FROM post_comments WHERE user_id=? ORDER BY id DESC LIMIT 1",
+              )
+              .get(user.id);
+            if (
+              recent &&
+              now().getTime() - Date.parse(recent.created_at) < 5000
+            )
+              fail(429, "댓글은 5초 간격으로 작성할 수 있습니다.");
+            await db
+              .prepare(
+                "INSERT INTO post_comments(post_id,user_id,body,created_at) VALUES (?,?,?,?)",
+              )
+              .run(postId, user.id, commentText, now().toISOString());
+            return send(201, { ok: true });
+          }
+          const commentMatch = path.match(/^\/api\/comments\/(\d+)$/);
+          if (commentMatch && req.method === "DELETE") {
+            const comment = await db
+              .prepare("SELECT user_id FROM post_comments WHERE id=?")
+              .get(Number(commentMatch[1]));
+            if (!comment) fail(404, "댓글을 찾을 수 없습니다.");
+            if (comment.user_id !== user.id && user.role !== "admin")
+              fail(403, "작성자 또는 운영진만 삭제할 수 있습니다.");
+            await db
+              .prepare("DELETE FROM post_comments WHERE id=?")
+              .run(Number(commentMatch[1]));
+            return send(200, { ok: true });
           }
           if (postMatch && req.method === "DELETE") {
             const post = await db
@@ -710,8 +1103,87 @@ export function createApp({
             if (post.user_id !== user.id && user.role !== "admin")
               fail(403, "작성자 또는 운영진만 삭제할 수 있습니다.");
             await db
+              .prepare("DELETE FROM post_comments WHERE post_id=?")
+              .run(Number(postMatch[1]));
+            await db
               .prepare("DELETE FROM posts WHERE id=?")
               .run(Number(postMatch[1]));
+            return send(200, { ok: true });
+          }
+          // One shared room per day; open 09:00–13:00 KST. Clients poll with ?after=<last id>.
+          const chatOpen = clock.minute >= 540 && clock.minute < 780;
+          if (path === "/api/chat" && req.method === "GET") {
+            const after = url.searchParams.get("after");
+            if (after !== null && !/^\d{1,12}$/.test(after))
+              fail(400, "요청 형식을 확인해주세요.");
+            const columns =
+              "SELECT c.id,c.user_id,c.body,c.created_at,u.name,u.track FROM chat_messages c JOIN users u ON u.id=c.user_id";
+            const messages =
+              after === null
+                ? (
+                    await db
+                      .prepare(
+                        `${columns} WHERE c.day=? AND c.deleted=0 ORDER BY c.id DESC LIMIT 200`,
+                      )
+                      .all(clock.day)
+                  ).reverse()
+                : await db
+                    .prepare(
+                      `${columns} WHERE c.day=? AND c.deleted=0 AND c.id>? ORDER BY c.id LIMIT 200`,
+                    )
+                    .all(clock.day, Number(after));
+            const deletedIds =
+              after === null
+                ? []
+                : (
+                    await db
+                      .prepare(
+                        "SELECT id FROM chat_messages WHERE day=? AND deleted=1 AND id<=?",
+                      )
+                      .all(clock.day, Number(after))
+                  ).map((row) => row.id);
+            return send(200, {
+              day: clock.day,
+              open: chatOpen,
+              messages,
+              deletedIds,
+            });
+          }
+          if (path === "/api/chat" && req.method === "POST") {
+            if (!chatOpen)
+              fail(409, "채팅은 오전 9시부터 오후 1시까지 이용할 수 있어요.");
+            const text = cleanText(body.body, 300, "메시지");
+            const recent = await db
+              .prepare(
+                "SELECT created_at FROM chat_messages WHERE user_id=? ORDER BY id DESC LIMIT 1",
+              )
+              .get(user.id);
+            if (
+              recent &&
+              now().getTime() - Date.parse(recent.created_at) < 2000
+            )
+              fail(429, "메시지는 2초 간격으로 보낼 수 있어요.");
+            const message = await db
+              .prepare(
+                "INSERT INTO chat_messages(user_id,day,body,created_at) VALUES (?,?,?,?) RETURNING id",
+              )
+              .get(user.id, clock.day, text, now().toISOString());
+            return send(201, { id: message.id });
+          }
+          const chatMatch = path.match(/^\/api\/chat\/(\d+)$/);
+          if (chatMatch && req.method === "DELETE") {
+            const message = await db
+              .prepare(
+                "SELECT user_id FROM chat_messages WHERE id=? AND deleted=0",
+              )
+              .get(Number(chatMatch[1]));
+            if (!message) fail(404, "메시지를 찾을 수 없습니다.");
+            if (message.user_id !== user.id && user.role !== "admin")
+              fail(403, "작성자 또는 운영진만 삭제할 수 있습니다.");
+            // Soft delete so polling clients learn which messages to remove.
+            await db
+              .prepare("UPDATE chat_messages SET deleted=1,body='' WHERE id=?")
+              .run(Number(chatMatch[1]));
             return send(200, { ok: true });
           }
           if (path.startsWith("/api/admin/")) {
@@ -748,9 +1220,14 @@ export function createApp({
                 .all(day);
               const reservations = await db
                 .prepare(
-                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
+                  "SELECT b.id,u.name,u.login_id,u.track,r.name restaurant,COALESCE(mi.name,NULLIF(b.menu_note,'')) menu,b.request,a.name actual_restaurant,m.reason change_reason FROM reservations b JOIN users u ON u.id=b.user_id JOIN restaurants r ON r.id=b.restaurant_id LEFT JOIN menu_items mi ON mi.id=b.menu_item_id LEFT JOIN meal_records m ON m.user_id=b.user_id AND m.day=b.day LEFT JOIN restaurants a ON a.id=m.restaurant_id WHERE b.day=? ORDER BY r.id,u.track,u.name",
                 )
                 .all(day);
+              const adminSides = await sidesOf("r.day=?", [day]);
+              for (const reservation of reservations)
+                reservation.sides = (adminSides.get(reservation.id) || [])
+                  .map((s) => s.name)
+                  .join(", ");
               const users = await db
                 .prepare(
                   "SELECT id,name,login_id,track,role,active,must_change FROM users ORDER BY id",
@@ -829,6 +1306,8 @@ export function createApp({
               }
               if (typeof body.listed !== "boolean")
                 fail(400, "식당 표시 여부를 선택해주세요.");
+              const maxPeople =
+                body.maxPeople === undefined ? null : maxPeopleOf(body.maxPeople);
               if (body.id) {
                 const restaurant = await db
                   .prepare("SELECT id FROM restaurants WHERE id=?")
@@ -836,7 +1315,7 @@ export function createApp({
                 if (!restaurant) fail(404, "식당을 찾을 수 없습니다.");
                 await db
                   .prepare(
-                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url),category=COALESCE(?,category) WHERE id=?",
+                    "UPDATE restaurants SET name=?,description=?,menu=?,listed=?,naver_url=COALESCE(?,naver_url),category=COALESCE(?,category),max_people=COALESCE(?,max_people) WHERE id=?",
                   )
                   .run(
                     name,
@@ -845,12 +1324,13 @@ export function createApp({
                     body.listed ? 1 : 0,
                     naverUrl,
                     category,
+                    maxPeople,
                     body.id,
                   );
               } else
                 await db
                   .prepare(
-                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,category,access_token) VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO restaurants(name,description,menu,listed,naver_url,category,max_people,access_token) VALUES (?,?,?,?,?,?,?,?)",
                   )
                   .run(
                     name,
@@ -859,6 +1339,7 @@ export function createApp({
                     body.listed ? 1 : 0,
                     naverUrl || "",
                     category || "",
+                    maxPeople ?? 0,
                     token(),
                   );
               return send(200, { ok: true });

@@ -1532,4 +1532,304 @@ dialog > p {
   .portal-link {
     display: none;
   }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.comments {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+.comments h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.comment-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.comment {
+  background: var(--paper);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.comment-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.comment-top .btn {
+  margin-left: auto;
+}
+.comment-body {
+  margin: 4px 0 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-form {
+  display: flex;
+  gap: 8px;
+}
+.comment-form input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+}
+.menu-pick {
+  margin: 12px 0 0;
+}
+.restaurant-orders .track-counts {
+  margin-bottom: 12px;
+}
+.menu-items {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.menu-items li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.card-cancel {
+  margin-top: 8px;
+}
+.menu-note-field[hidden] {
+  display: none;
+}
+.chat-panel {
+  margin-bottom: 18px;
+}
+.chat-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  background: var(--paper);
+  border-radius: 14px;
+}
+.chat-empty {
+  padding: 18px 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.chat-message {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  max-width: 85%;
+  justify-self: start;
+}
+.chat-message.mine {
+  background: var(--rose);
+  border-color: #f3d3cf;
+  justify-self: end;
+}
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.chat-meta .btn {
+  margin-left: auto;
+  padding: 2px 6px;
+}
+.chat-body {
+  margin: 3px 0 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+}
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 15px;
+}
+.request-form {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.request-form .field {
+  margin: 0;
+}
+.saved-request {
+  margin-top: 8px;
+}
+.restaurant-orders tr.has-request td {
+  border-bottom: 0;
+}
+.order-request td {
+  padding-top: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+.request-label {
+  display: inline-block;
+  background: var(--rose);
+  color: var(--red);
+  font-weight: 700;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 4px;
+}
+.restaurant-orders tr:not(.order-request) > :not(:first-child) {
+  white-space: nowrap;
+}
+.limit-now {
+  margin: 10px 0;
+}
+.party-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 6px;
+}
+.party-now {
+  margin: 0;
+  font-size: 14px;
+}
+.party-form fieldset {
+  border: 0;
+  margin: 0 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.party-form legend {
+  margin-bottom: 4px;
+}
+.party-group {
+  margin-top: 14px;
+}
+.party-group h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.party-tag {
+  display: inline-block;
+  background: var(--red);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  margin-right: 4px;
+}
+.party-tag.solo {
+  background: var(--muted);
+}
+.reply-now {
+  margin-top: 6px;
+  font-size: 14px;
+}
+.reply-label {
+  display: inline-block;
+  background: #e7f3ee;
+  color: var(--green);
+  font-weight: 700;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 4px;
+}
+.reply-form {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.quick-replies {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.reply-input {
+  display: flex;
+  gap: 6px;
+}
+.reply-input input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 14px;
+}
+.restaurant-reply {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #e7f3ee;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.restaurant-reply b {
+  color: var(--green);
+  margin-right: 4px;
+}
+.side-pick {
+  border: 0;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.side-pick legend {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.price-total {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.order-sides {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
 }
