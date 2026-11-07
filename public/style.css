@@ -1524,3 +1524,12 @@ dialog > p {
 .restaurant-view .track-counts {
   flex-wrap: wrap;
 }
+/* 대전 훈련생 포털 바로가기: 좁은 화면에서는 헤더가 넘치지 않도록 숨깁니다(포털에서 들어오면 포털 창이 그대로 남아 있음). */
+.portal-link {
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .portal-link {
+    display: none;
+  }
+}

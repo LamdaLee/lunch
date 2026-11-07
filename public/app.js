@@ -10,6 +10,7 @@ const state = {
   missions: null,
   inbox: null,
   notificationMeta: null,
+  portalUrl: null,
 };
 const esc = (value) =>
   String(value ?? "").replace(
@@ -123,7 +124,7 @@ async function loadNotifications(before) {
 }
 
 function header() {
-  return `<header class="topbar">${brand()}<div class="top-right">${state.user ? `${!state.user.must_change ? notificationBell() : ""}<span class="pill gray">${esc(trackName(state.user.track))}</span><button class="btn ghost small profile" data-action="password" aria-label="${esc(state.user.name)} 비밀번호 변경"><span class="avatar">${esc(state.user.name[0])}</span><b>${esc(state.user.name)}</b></button><button class="btn ghost small" data-action="logout">로그아웃</button>` : '<span class="pill red">AX · SF</span>'}</div></header>`;
+  return `<header class="topbar">${brand()}<div class="top-right">${state.user ? `${!state.user.must_change ? notificationBell() : ""}${state.portalUrl && !state.user.must_change ? `<a class="btn ghost small portal-link" href="${esc(state.portalUrl)}/">포털</a>` : ""}<span class="pill gray">${esc(trackName(state.user.track))}</span><button class="btn ghost small profile" data-action="password" aria-label="${esc(state.user.name)} 비밀번호 변경"><span class="avatar">${esc(state.user.name[0])}</span><b>${esc(state.user.name)}</b></button><button class="btn ghost small" data-action="logout">로그아웃</button>` : '<span class="pill red">AX · SF</span>'}</div></header>`;
 }
 function footer() {
   return '<footer class="footer"><span>런치패스 · 함께하는 점심</span><span>종이 식권 지참 · 지원 한도 11,000원</span></footer>';
@@ -1080,6 +1081,13 @@ async function boot() {
     }
     const data = await api("/status");
     state.user = data.user;
+    state.portalUrl = data.portalUrl;
+    if (new URLSearchParams(location.search).get("portal") === "expired") {
+      history.replaceState(null, "", "/");
+      toast(
+        "포털에서 넘어온 로그인 링크가 만료되었어요. 포털의 점심 탭을 다시 눌러주세요.",
+      );
+    }
     if (state.user) {
       await afterLogin();
     } else renderAuth(data.setupNeeded, data.setupAvailable);
