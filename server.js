@@ -16,6 +16,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { timingSafeEqual } from "node:crypto";
+import { portalConfig, verifyToken, verifyRequest } from "./lib/portal.js";
 import {
   openStore,
   koreaClock,
@@ -45,6 +46,7 @@ export function createApp({
   now = () => new Date(),
   secureCookie = process.env.COOKIE_SECURE === "true" ||
     Boolean(process.env.VERCEL),
+  portal = portalConfig(),
 } = {}) {
   const publicDir = fileURLToPath(new URL("./public/", import.meta.url));
   const handler = async (req, res) => {
@@ -59,7 +61,12 @@ export function createApp({
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     );
     const send = (status, data) => ({ status, data });
-    const respond = ({ status, data }) => {
+    const respond = ({ status, data, location }) => {
+      if (location) {
+        res.writeHead(302, { Location: location, "Cache-Control": "no-store" });
+        res.end();
+        return;
+      }
       res.writeHead(status, {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "no-store",
@@ -93,6 +100,7 @@ export function createApp({
         return;
       }
       let body = {};
+      let rawBody = "";
       if (req.method !== "GET") {
         if (req.headers["sec-fetch-site"] === "cross-site")
           fail(403, "다른 사이트에서의 요청은 허용되지 않습니다.");
@@ -124,6 +132,7 @@ export function createApp({
         }
         if (Buffer.byteLength(raw) > 16384)
           fail(413, "입력 내용이 너무 큽니다.");
+        rawBody = raw;
         try {
           body = raw ? JSON.parse(raw) : {};
         } catch {
@@ -189,6 +198,7 @@ export function createApp({
                 .prepare("SELECT id FROM users WHERE role='admin'")
                 .get()),
               setupAvailable: (process.env.SETUP_KEY?.length || 0) >= 24,
+              portalUrl: portal?.url || null,
             });
           if (path === "/api/setup" && req.method === "POST") {
             if (
@@ -220,7 +230,10 @@ export function createApp({
               .run(name, loginId, "OTHER", passwordHash(body.password));
             return send(201, { ok: true });
           }
-          if (path === "/api/login" && req.method === "POST") {
+          const badLogin = () =>
+            send(401, { error: "학번/ID 또는 비밀번호를 확인해주세요." });
+          // 학번·비밀번호 확인(시도 횟수 제한 포함). 런치패스 로그인과 포털 로그인이 같이 씁니다.
+          const checkLogin = async () => {
             const time = now().getTime();
             if (
               typeof body.password !== "string" ||
@@ -261,12 +274,16 @@ export function createApp({
                   "INSERT INTO login_attempts(id,attempts,expires) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET attempts=excluded.attempts,expires=excluded.expires",
                 )
                 .run(key, count, expires);
-              return send(401, {
-                error: "학번/ID 또는 비밀번호를 확인해주세요.",
-              });
+              // 실패 기록이 저장되도록 예외 대신 null 을 돌려줍니다(예외는 트랜잭션을 되돌림).
+              return null;
             }
-            await setSession(found.id);
             await db.prepare("DELETE FROM login_attempts WHERE id=?").run(key);
+            return found;
+          };
+          if (path === "/api/login" && req.method === "POST") {
+            const found = await checkLogin();
+            if (!found) return badLogin();
+            await setSession(found.id);
             return send(200, { ok: true });
           }
           if (path === "/api/logout" && req.method === "POST") {
@@ -318,6 +335,118 @@ export function createApp({
               changedAwayCount: changedAway.count,
               clock,
             });
+          }
+          // ---- 대전 훈련생 포털 연결 (lib/portal.js 참고) ----
+          const portalUser = (u) => ({
+            id: Number(u.id),
+            name: u.name,
+            loginId: u.login_id,
+            track: u.track,
+            role: u.role,
+            mustChange: Boolean(u.must_change),
+          });
+          const requirePortalServer = (signedPath) => {
+            if (!portal) fail(404, "포털 연결이 설정되지 않았습니다.");
+            if (
+              !verifyRequest(
+                portal.secret,
+                req.method,
+                signedPath,
+                req.headers,
+                now().getTime(),
+                rawBody,
+              )
+            )
+              fail(401, "포털 서명이 올바르지 않습니다.");
+          };
+          // 포털 로그인 화면에서 입력한 학번·비밀번호 확인
+          if (path === "/api/portal/login" && req.method === "POST") {
+            requirePortalServer(path);
+            const found = await checkLogin();
+            if (!found) return badLogin();
+            return send(200, { user: portalUser(found) });
+          }
+          // 포털 화면에서 하는 첫 비밀번호 변경
+          if (path === "/api/portal/password" && req.method === "POST") {
+            requirePortalServer(path);
+            const found = await checkLogin();
+            if (!found) return badLogin();
+            if (
+              typeof body.newPassword !== "string" ||
+              body.newPassword.length < 8 ||
+              body.newPassword.length > 128
+            )
+              fail(400, "새 비밀번호는 8~128자여야 합니다.");
+            if (passwordMatches(body.newPassword, found.password))
+              fail(400, "현재 비밀번호와 다른 새 비밀번호를 입력해주세요.");
+            await db
+              .prepare("UPDATE users SET password=?,must_change=0 WHERE id=?")
+              .run(passwordHash(body.newPassword), found.id);
+            await db
+              .prepare("DELETE FROM sessions WHERE user_id=?")
+              .run(found.id);
+            return send(200, {
+              user: portalUser({ ...found, must_change: 0 }),
+            });
+          }
+          // 포털 서버가 명단(이름·반·운영진 여부)을 확인할 때
+          if (path === "/api/portal/users" && req.method === "GET") {
+            const id = url.searchParams.get("id");
+            if (id !== null && !/^\d{1,12}$/.test(id))
+              fail(400, "이용자 번호가 올바르지 않습니다.");
+            requirePortalServer(
+              `/api/portal/users${id !== null ? `?id=${id}` : ""}`,
+            );
+            const rows =
+              id !== null
+                ? await db
+                    .prepare(
+                      "SELECT id,name,login_id,track,role,must_change FROM users WHERE id=? AND active=1",
+                    )
+                    .all(Number(id))
+                : await db
+                    .prepare(
+                      "SELECT id,name,login_id,track,role,must_change FROM users WHERE active=1 ORDER BY track,name",
+                    )
+                    .all();
+            return send(200, { users: rows.map(portalUser) });
+          }
+          // 포털의 점심 탭: 1회용 토큰으로 런치패스에 자동 로그인
+          if (path === "/api/portal/enter" && req.method === "GET") {
+            if (!portal) fail(404, "포털 연결이 설정되지 않았습니다.");
+            const time = now().getTime();
+            const payload = verifyToken(
+              portal.secret,
+              "enter",
+              url.searchParams.get("token"),
+              time,
+            );
+            if (
+              !payload ||
+              typeof payload.jti !== "string" ||
+              !Number.isInteger(payload.sub)
+            )
+              return { location: "/?portal=expired" };
+            await db
+              .prepare("DELETE FROM portal_tokens WHERE expires<=?")
+              .run(time);
+            if (
+              await db
+                .prepare("SELECT jti FROM portal_tokens WHERE jti=?")
+                .get(digest(payload.jti))
+            )
+              return { location: "/?portal=expired" };
+            await db
+              .prepare("INSERT INTO portal_tokens(jti,expires) VALUES (?,?)")
+              .run(digest(payload.jti), payload.exp + 60000);
+            const target = await db
+              .prepare(
+                "SELECT id,must_change FROM users WHERE id=? AND active=1",
+              )
+              .get(payload.sub);
+            if (!target) return { location: "/" };
+            await setSession(target.id);
+            return { location: "/" };
           }
           requireUser();
           if (path === "/api/password" && req.method === "POST") {
@@ -883,7 +1012,7 @@ export function createApp({
           }
           fail(404, "요청을 찾을 수 없습니다.");
         },
-        { readOnly: req.method === "GET" },
+        { readOnly: req.method === "GET" && path !== "/api/portal/enter" },
       );
       respond(result);
     } catch (error) {

@@ -8,6 +8,7 @@ export async function fixture({
   path = ":memory:",
   time = "2026-10-12T10:00:00+09:00",
   seed = true,
+  portal = null,
 } = {}) {
   let cleanupPool, schema;
   if (path === ":memory:" && process.env.TEST_DATABASE_URL) {
@@ -58,7 +59,7 @@ export async function fixture({
       )
       .run();
   }
-  const { server, handler } = createApp({ db, now: () => current });
+  const { server, handler } = createApp({ db, now: () => current, portal });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   async function request(
