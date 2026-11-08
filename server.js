@@ -1502,6 +1502,65 @@ export function createApp({
                 loginId: target.login_id,
               });
             }
+            if (path === "/api/admin/delete-users" && req.method === "POST") {
+              const ids = [...new Set(body.ids || [])];
+              if (
+                !Array.isArray(body.ids) ||
+                !ids.length ||
+                ids.length > 200 ||
+                !ids.every(Number.isInteger)
+              )
+                fail(400, "삭제할 이용자를 1~200명 선택해주세요.");
+              if (ids.includes(user.id))
+                fail(409, "내 계정은 삭제할 수 없습니다.");
+              const marks = ids.map(() => "?").join(",");
+              const found = await db
+                .prepare(`SELECT id FROM users WHERE id IN (${marks})`)
+                .all(...ids);
+              if (found.length !== ids.length)
+                fail(
+                  404,
+                  "이용자를 찾을 수 없습니다. 새로고침 후 다시 시도해주세요.",
+                );
+              // 계정에 딸린 기록을 먼저 지우고 계정을 지웁니다.
+              const run = (sql, ...args) =>
+                db.prepare(sql).run(...ids, ...args);
+              const parties = (
+                await db
+                  .prepare(
+                    `SELECT DISTINCT party_id FROM reservations WHERE party_id IS NOT NULL AND user_id IN (${marks})`,
+                  )
+                  .all(...ids)
+              ).map((r) => r.party_id);
+              await run(`DELETE FROM sessions WHERE user_id IN (${marks})`);
+              await run(
+                `DELETE FROM notifications WHERE user_id IN (${marks})`,
+              );
+              await run(
+                `DELETE FROM mission_claims WHERE user_id IN (${marks})`,
+              );
+              await run(
+                `UPDATE mission_claims SET reviewed_by=NULL WHERE reviewed_by IN (${marks})`,
+              );
+              await run(
+                `DELETE FROM chat_messages WHERE user_id IN (${marks})`,
+              );
+              await run(
+                `DELETE FROM post_comments WHERE post_id IN (SELECT id FROM posts WHERE user_id IN (${marks}))`,
+              );
+              await run(
+                `DELETE FROM post_comments WHERE user_id IN (${marks})`,
+              );
+              await run(`DELETE FROM posts WHERE user_id IN (${marks})`);
+              await run(`DELETE FROM meal_records WHERE user_id IN (${marks})`);
+              await run(
+                `DELETE FROM reservation_sides WHERE reservation_id IN (SELECT id FROM reservations WHERE user_id IN (${marks}))`,
+              );
+              await run(`DELETE FROM reservations WHERE user_id IN (${marks})`);
+              for (const partyId of parties) await tidyParty(partyId);
+              await run(`DELETE FROM users WHERE id IN (${marks})`);
+              return send(200, { deleted: ids.length });
+            }
             if (path === "/api/admin/bulk-users" && req.method === "POST") {
               if (
                 !Array.isArray(body.members) ||
