@@ -923,3 +923,43 @@ test("사이드 메뉴를 여러 개 골라 예약하면 합계와 식권 초과
   expect(errors).toEqual([]);
   await restaurant.close();
 });
+test("운영진이 이용자를 하나씩 또는 여러 명 골라 삭제", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await login(page, "테스트관리자");
+  await page.getByRole("button", { name: "운영 관리", exact: true }).click();
+  const users = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "등록된 이용자" }),
+  });
+  const deleteSelected = users.getByRole("button", {
+    name: /^(선택 삭제|\d+명 삭제)$/,
+  });
+  await expect(deleteSelected).toBeDisabled();
+  // 한 명 삭제
+  await users
+    .locator("tr")
+    .filter({ hasText: "SF학생" })
+    .getByRole("button", { name: "삭제", exact: true })
+    .click();
+  await expect(page.locator("dialog")).toContainText("SF학생 님을 삭제할까요?");
+  await page.locator("#confirm-yes").click();
+  await expect(page.getByText("1명을 삭제했어요.")).toBeVisible();
+  await expect(users.locator("tr").filter({ hasText: "SF학생" })).toHaveCount(
+    0,
+  );
+  // 일반 이용자 모두 선택 → 삭제 (운영진은 선택되지 않음)
+  await users
+    .getByRole("button", { name: "일반 이용자 모두 선택", exact: true })
+    .click();
+  await expect(deleteSelected).toHaveText("2명 삭제");
+  await deleteSelected.click();
+  await expect(page.locator("dialog")).toContainText("2명을 삭제할까요?");
+  await page.locator("#confirm-yes").click();
+  await expect(page.getByText("2명을 삭제했어요.")).toBeVisible();
+  await expect(users.locator("tbody tr")).toHaveCount(1);
+  await expect(users.locator("tbody tr")).toContainText("테스트관리자");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await users.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: ".local/screenshots/delete-users.png" });
+  expect(errors).toEqual([]);
+});
