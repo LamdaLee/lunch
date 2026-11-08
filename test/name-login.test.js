@@ -125,3 +125,56 @@ test("포털 로그인도 이름으로 된다", async (t) => {
   assert.equal(r.status, 200);
   assert.equal((await r.json()).user.loginId, "ax001");
 });
+
+test("일괄 등록에서 숫자 4자리 초기 비밀번호(휴대폰 뒷자리)를 지정한다", async (t) => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const admin = await app.login("테스트관리자");
+  const bad = await app.request("/admin/bulk-users", {
+    method: "POST",
+    cookie: admin,
+    body: {
+      members: [
+        { name: "가", loginId: "JA0001", track: "AX", password: "123" },
+      ],
+    },
+  });
+  assert.equal(bad.status, 400);
+  const r = await app.request("/admin/bulk-users", {
+    method: "POST",
+    cookie: admin,
+    body: {
+      members: [
+        { name: "가나다", loginId: "TEST0001", track: "AX", password: "0123" },
+        { name: "라마바", track: "DM", password: "4567" },
+        { name: "자동비번", loginId: "TEST0099", track: "AX" },
+      ],
+    },
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.members[0].password, "0123");
+  assert.equal(r.data.members[1].loginId, "dm001");
+  assert.equal(r.data.members[2].password.length, 12);
+  // 학번으로도, 이름으로도 4자리로 첫 로그인 → 비밀번호 변경 단계
+  const byId = await login(app, "TEST0001", "0123");
+  assert.equal(byId.status, 200);
+  assert.equal(
+    (await app.request("/status", { cookie: byId.cookie })).data.user
+      .must_change,
+    1,
+  );
+  assert.equal((await login(app, "라마바", "4567")).status, 200);
+  // 바꾸고 나면 4자리는 더 이상 안 된다
+  assert.equal(
+    (
+      await app.request("/password", {
+        method: "POST",
+        cookie: byId.cookie,
+        body: { current: "0123", password: "new-test-pass1" },
+      })
+    ).status,
+    200,
+  );
+  assert.equal((await login(app, "TEST0001", "0123")).status, 401);
+  assert.equal((await login(app, "가나다", "new-test-pass1")).status, 200);
+});

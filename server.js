@@ -45,6 +45,12 @@ const autoLoginId = async (db, track, taken = new Set()) => {
   }
   throw new Error("AUTO_ID_EXHAUSTED");
 };
+// 초기 비밀번호: 숫자 4자리(예: 휴대폰 뒷자리, 첫 로그인 때 바꿔야 함) 또는 8~128자
+const initialPasswordOf = (value) =>
+  typeof value === "string" &&
+  (/^\d{4}$/.test(value) || (value.length >= 8 && value.length <= 128))
+    ? value
+    : fail(400, "초기 비밀번호는 숫자 4자리 또는 8~128자여야 합니다.");
 const loginIdOf = (value) =>
   typeof value === "string" && /^[A-Za-z0-9_.@-]{1,40}$/.test(value)
     ? value
@@ -1428,13 +1434,9 @@ export function createApp({
               const role = body.role ?? "member";
               if (!["member", "admin"].includes(role))
                 fail(400, "권한을 선택해주세요.");
-              const password = body.password || token().slice(0, 12);
-              if (
-                typeof password !== "string" ||
-                password.length < 8 ||
-                password.length > 128
-              )
-                fail(400, "초기 비밀번호는 8~128자여야 합니다.");
+              const password = body.password
+                ? initialPasswordOf(body.password)
+                : token().slice(0, 12);
               if (
                 await db
                   .prepare("SELECT id FROM users WHERE login_id=?")
@@ -1533,7 +1535,9 @@ export function createApp({
                   name,
                   loginId,
                   track,
-                  password: token().slice(0, 12),
+                  password: member.password
+                    ? initialPasswordOf(String(member.password).trim())
+                    : token().slice(0, 12),
                 });
               }
 
