@@ -10,7 +10,7 @@ test.afterEach(async () => {
 async function login(page, name = "AX학생") {
   await page.goto(app.base);
   await page
-    .getByLabel("학번 / 로그인 ID", { exact: true })
+    .getByLabel("학번 / ID 또는 이름", { exact: true })
     .fill({ 테스트관리자: "admin", AX학생: "ax001" }[name] || name);
   await page.getByLabel("비밀번호", { exact: true }).fill(testPassword);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
@@ -142,7 +142,9 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
     .getByRole("combobox", { name: "권한", exact: true })
     .selectOption("admin");
   await page.getByLabel("이름", { exact: true }).fill("신규학생");
-  await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("new001");
+  await page
+    .getByLabel("학번 / 로그인 ID (선택)", { exact: true })
+    .fill("new001");
   await page.getByLabel("초기 비밀번호", { exact: true }).fill(testPassword);
   await page.getByRole("button", { name: "이용자 등록", exact: true }).click();
   await expect(page.locator(".code-output")).toContainText("new001");
@@ -150,7 +152,9 @@ test("운영진 계정 등록 → 첫 비밀번호 변경 → 관리 접근, 인
   const context = await browser.newContext();
   const member = await context.newPage();
   await member.goto(app.base);
-  await member.getByLabel("학번 / 로그인 ID", { exact: true }).fill("new001");
+  await member
+    .getByLabel("학번 / ID 또는 이름", { exact: true })
+    .fill("new001");
   await member.getByLabel("비밀번호", { exact: true }).fill(testPassword);
   await member.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(
@@ -279,7 +283,7 @@ test("내 식사 기록과 메뉴의 비밀번호 변경 창", async ({ page }) 
   await page.getByRole("button", { name: "변경하기", exact: true }).click();
   await expect(page.locator("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "로그아웃", exact: true }).click();
-  await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("ax001");
+  await page.getByLabel("학번 / ID 또는 이름", { exact: true }).fill("ax001");
   await page
     .getByLabel("비밀번호", { exact: true })
     .fill("personal-password-changed-71");
@@ -297,7 +301,7 @@ test("앞에 0이 있는 4자리 초기 비밀번호로 로그인 후 개인 비
     .prepare("UPDATE users SET password=?,must_change=1 WHERE login_id=?")
     .run(passwordHash("0642"), "ax001");
   await page.goto(app.base);
-  await page.getByLabel("학번 / 로그인 ID", { exact: true }).fill("ax001");
+  await page.getByLabel("학번 / ID 또는 이름", { exact: true }).fill("ax001");
   await page.getByLabel("비밀번호", { exact: true }).fill("0642");
   await page.getByRole("button", { name: "로그인", exact: true }).click();
   await expect(
@@ -557,7 +561,9 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await expect(page.locator("#toast")).toHaveText(
     "예약할 메뉴를 먼저 골라주세요.",
   );
-  await card.getByLabel("예약할 메뉴").selectOption({ label: "제육덮밥 · 9,000원" });
+  await card
+    .getByLabel("예약할 메뉴")
+    .selectOption({ label: "제육덮밥 · 9,000원" });
   await card.getByRole("button", { name: "나도 여기 갈래요" }).click();
   await expect(page.locator(".reservation-summary")).toContainText(
     "제육덮밥 · 9,000원",
@@ -584,7 +590,9 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await expect(card.getByLabel("메뉴 직접 적기")).toHaveValue(
     "제육 곱빼기, 계란후라이 추가",
   );
-  await card.getByLabel("식당에 전할 요청사항").fill("3명 같이 가요. 계란 빼주세요");
+  await card
+    .getByLabel("식당에 전할 요청사항")
+    .fill("3명 같이 가요. 계란 빼주세요");
   await card.getByRole("button", { name: "요청사항 저장" }).click();
   await expect(page.locator(".reservation-summary")).toContainText(
     "3명 같이 가요. 계란 빼주세요",
@@ -629,13 +637,18 @@ test("식당이 메뉴 등록 → 학생이 메뉴 예약 → 식당에서 예�
   await expect(page.locator(".comment-body")).toHaveText("<b>좋아요</b>");
   await expect(page.locator(".comments h4")).toContainText("1");
   expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
   ).toBe(true);
   await page.screenshot({
     path: ".local/screenshots/board-comments.png",
     fullPage: true,
   });
-  await page.locator(".comment").getByRole("button", { name: "댓글 삭제" }).click();
+  await page
+    .locator(".comment")
+    .getByRole("button", { name: "댓글 삭제" })
+    .click();
   await page.locator("#confirm-yes").click();
   await expect(page.locator(".comment")).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -650,10 +663,12 @@ test("오늘의 채팅: 다른 사람 메시지가 몇 초 안에 보이고 삭�
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
-  const other = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const other = await browser.newPage({
+    viewport: { width: 1280, height: 900 },
+  });
   other.on("pageerror", (e) => errors.push(e.message));
   await other.goto(app.base);
-  await other.getByLabel("학번 / 로그인 ID", { exact: true }).fill("sf001");
+  await other.getByLabel("학번 / ID 또는 이름", { exact: true }).fill("sf001");
   await other.getByLabel("비밀번호", { exact: true }).fill(testPassword);
   await other.getByRole("button", { name: "로그인", exact: true }).click();
 
@@ -682,10 +697,15 @@ test("오늘의 채팅: 다른 사람 메시지가 몇 초 안에 보이고 삭�
     { timeout: 8000 },
   );
   await expect(
-    other.locator(".chat-message").first().getByRole("button", { name: "메시지 삭제" }),
+    other
+      .locator(".chat-message")
+      .first()
+      .getByRole("button", { name: "메시지 삭제" }),
   ).toHaveCount(0);
   expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
   ).toBe(true);
   await page.locator("#chat-panel").screenshot({
     path: ".local/screenshots/chat.png",
@@ -739,9 +759,13 @@ test("같은 식당을 고른 사람과 일행으로 묶으면 식당 화면에 
   await box.getByRole("button", { name: "일행으로 묶기" }).click();
   await expect(box.locator(".party-now")).toContainText("SF학생");
   await expect(box.locator(".party-now")).toContainText("나 포함 2명");
-  await expect(page.locator(".reservation-summary")).toContainText("나 포함 2명");
+  await expect(page.locator(".reservation-summary")).toContainText(
+    "나 포함 2명",
+  );
   expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
   ).toBe(true);
   await card.screenshot({ path: ".local/screenshots/party-card.png" });
 
@@ -883,7 +907,9 @@ test("사이드 메뉴를 여러 개 골라 예약하면 합계와 식권 초과
     "합계 12,500원 · 식권 초과 1,500원은 직접 결제",
   );
   expect(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
   ).toBe(true);
   await card.screenshot({ path: ".local/screenshots/sides-card.png" });
 
