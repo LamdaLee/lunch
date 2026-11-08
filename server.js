@@ -34,6 +34,17 @@ const cleanText = (value, max, label) => {
     fail(400, `${label}을(를) 1~${max}자로 입력해주세요.`);
   return value.trim();
 };
+// 학번이 아직 없을 때 반 이름으로 ID를 만듭니다. 예: DM → dm001, AX2기 → ax2001
+const autoLoginId = async (db, track, taken = new Set()) => {
+  const prefix = track.toLowerCase().replace(/[^a-z0-9]/g, "") || "user";
+  for (let n = 1; n < 100000; n++) {
+    const id = `${prefix}${String(n).padStart(3, "0")}`;
+    if (taken.has(id)) continue;
+    if (!(await db.prepare("SELECT id FROM users WHERE login_id=?").get(id)))
+      return id;
+  }
+  throw new Error("AUTO_ID_EXHAUSTED");
+};
 const loginIdOf = (value) =>
   typeof value === "string" && /^[A-Za-z0-9_.@-]{1,40}$/.test(value)
     ? value
@@ -245,21 +256,41 @@ export function createApp({
                 400,
                 "초기 비밀번호는 숫자 4자리, 개인 비밀번호는 8~128자입니다.",
               );
-            const loginId = loginIdOf(body.loginId);
+            // 학번/ID 또는 이름으로 로그인합니다(학번이 아직 없는 기수도 이름으로).
+            const loginId =
+              typeof body.loginId === "string" ? body.loginId.trim() : "";
+            if (
+              !loginId ||
+              loginId.length > 40 ||
+              /[\u0000-\u001f]/.test(loginId)
+            )
+              fail(400, "학번/ID 또는 이름을 입력해주세요.");
             const key = digest(loginId);
             const limit = await db
               .prepare("SELECT attempts,expires FROM login_attempts WHERE id=?")
               .get(key);
             if (limit && Number(limit.expires) > time && limit.attempts >= 15)
               fail(429, "시도가 너무 많습니다. 10분 후 다시 시도해주세요.");
-            const found = await db
+            const passwordFits = (candidate) =>
+              !(body.password.length < 8 && !candidate.must_change) &&
+              passwordMatches(body.password, candidate.password);
+            const byId = await db
               .prepare("SELECT * FROM users WHERE login_id=? AND active=1")
               .get(loginId);
-            if (
-              !found ||
-              (body.password.length < 8 && !found.must_change) ||
-              !passwordMatches(body.password, found.password)
-            ) {
+            // ID가 없으면 이름으로 찾고, 동명이인은 비밀번호가 맞는 사람으로 정합니다.
+            const candidates = byId
+              ? [byId]
+              : await db
+                  .prepare("SELECT * FROM users WHERE name=? AND active=1")
+                  .all(loginId);
+            const matched = candidates.filter(passwordFits);
+            if (matched.length > 1)
+              fail(
+                409,
+                "같은 이름의 계정이 있어요. 학번/ID로 로그인해주세요. ID는 운영진에게 물어보세요.",
+              );
+            const found = matched[0];
+            if (!found) {
               const count =
                 limit && Number(limit.expires) > time ? limit.attempts + 1 : 1;
               const expires =
@@ -305,7 +336,9 @@ export function createApp({
               .get(partyId);
             if (Number(n) <= 1)
               await db
-                .prepare("UPDATE reservations SET party_id=NULL WHERE party_id=?")
+                .prepare(
+                  "UPDATE reservations SET party_id=NULL WHERE party_id=?",
+                )
                 .run(partyId);
           };
           // Side dishes per reservation, as Map(reservation id -> [{id,name,price}]).
@@ -317,7 +350,10 @@ export function createApp({
               .all(...values);
             const map = new Map();
             for (const { reservation_id, ...side } of rows)
-              map.set(reservation_id, [...(map.get(reservation_id) || []), side]);
+              map.set(reservation_id, [
+                ...(map.get(reservation_id) || []),
+                side,
+              ]);
             return map;
           };
           const restaurantByToken = async (value) =>
@@ -327,14 +363,20 @@ export function createApp({
                   "SELECT id,name,description,menu,max_people FROM restaurants WHERE access_token=?",
                 )
                 .get(value))) ||
-            fail(404, "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.");
+            fail(
+              404,
+              "식당 링크가 유효하지 않습니다. 운영진에게 문의해주세요.",
+            );
           if (path === "/api/restaurant/menu" && req.method === "POST") {
             const restaurant = await restaurantByToken(body.token);
             const name = cleanText(body.name, 40, "메뉴 이름");
             const price = body.price ?? 0;
             if (!Number.isInteger(price) || price < 0 || price > 100000)
               fail(400, "가격은 0~100,000원 사이의 숫자로 입력해주세요.");
-            if (body.kind !== undefined && !["main", "side"].includes(body.kind))
+            if (
+              body.kind !== undefined &&
+              !["main", "side"].includes(body.kind)
+            )
               fail(400, "메뉴 종류는 메인 또는 사이드로 골라주세요.");
             if (body.id !== undefined) {
               if (!Number.isInteger(body.id)) fail(400, "메뉴를 확인해주세요.");
@@ -363,7 +405,10 @@ export function createApp({
           const maxPeopleOf = (value) =>
             Number.isInteger(value) && value >= 0 && value <= 500
               ? value
-              : fail(400, "최대 인원은 0~500명으로 입력해주세요. 0은 제한 없음입니다.");
+              : fail(
+                  400,
+                  "최대 인원은 0~500명으로 입력해주세요. 0은 제한 없음입니다.",
+                );
           if (path === "/api/restaurant/limit" && req.method === "POST") {
             const restaurant = await restaurantByToken(body.token);
             await db
@@ -378,7 +423,10 @@ export function createApp({
               fail(409, "답변은 오전 9시부터 12시 50분까지 보낼 수 있어요.");
             if (!Number.isInteger(body.reservationId))
               fail(400, "답변할 요청을 확인해주세요.");
-            if (typeof body.reply !== "string" || body.reply.trim().length > 100)
+            if (
+              typeof body.reply !== "string" ||
+              body.reply.trim().length > 100
+            )
               fail(400, "답변은 100자 이내로 입력해주세요.");
             const reply = body.reply.trim();
             const result = await db
@@ -728,7 +776,12 @@ export function createApp({
                 .map(({ track, count }) => ({ track, count }));
               restaurant.menuItems = menuItems
                 .filter((item) => item.restaurant_id === restaurant.id)
-                .map(({ id, name, price, kind }) => ({ id, name, price, kind }));
+                .map(({ id, name, price, kind }) => ({
+                  id,
+                  name,
+                  price,
+                  kind,
+                }));
             }
             // People at my restaurant today, so I can form a party with them.
             const companions = reservation
@@ -885,7 +938,9 @@ export function createApp({
               if (existing && existing.restaurant_id !== restaurant.id)
                 await tidyParty(existing.party_id);
               const saved = await db
-                .prepare("SELECT id FROM reservations WHERE user_id=? AND day=?")
+                .prepare(
+                  "SELECT id FROM reservations WHERE user_id=? AND day=?",
+                )
                 .get(user.id, clock.day);
               await db
                 .prepare("DELETE FROM reservation_sides WHERE reservation_id=?")
@@ -917,8 +972,7 @@ export function createApp({
                 user.id,
                 clock.day,
               );
-            if (!result.changes)
-              fail(404, "먼저 오늘 갈 식당을 선택해주세요.");
+            if (!result.changes) fail(404, "먼저 오늘 갈 식당을 선택해주세요.");
             return send(200, { ok: true });
           }
           if (
@@ -1307,7 +1361,9 @@ export function createApp({
               if (typeof body.listed !== "boolean")
                 fail(400, "식당 표시 여부를 선택해주세요.");
               const maxPeople =
-                body.maxPeople === undefined ? null : maxPeopleOf(body.maxPeople);
+                body.maxPeople === undefined
+                  ? null
+                  : maxPeopleOf(body.maxPeople);
               if (body.id) {
                 const restaurant = await db
                   .prepare("SELECT id FROM restaurants WHERE id=?")
@@ -1364,8 +1420,11 @@ export function createApp({
             }
             if (path === "/api/admin/users" && req.method === "POST") {
               const name = cleanText(body.name, 40, "이름"),
-                loginId = loginIdOf(body.loginId),
-                track = await trackOf(body.track);
+                track = await trackOf(body.track),
+                loginId =
+                  typeof body.loginId === "string" && body.loginId.trim()
+                    ? loginIdOf(body.loginId.trim())
+                    : await autoLoginId(db, track);
               const role = body.role ?? "member";
               if (!["member", "admin"].includes(role))
                 fail(400, "권한을 선택해주세요.");
@@ -1454,8 +1513,11 @@ export function createApp({
                 if (!member || typeof member !== "object")
                   fail(400, "명단 형식을 확인해주세요.");
                 const name = cleanText(member.name, 40, "이름"),
-                  loginId = loginIdOf(member.loginId),
-                  track = await trackOf(member.track);
+                  track = await trackOf(member.track),
+                  loginId =
+                    typeof member.loginId === "string" && member.loginId.trim()
+                      ? loginIdOf(member.loginId.trim())
+                      : await autoLoginId(db, track, ids);
                 if (
                   ids.has(loginId) ||
                   (await db
