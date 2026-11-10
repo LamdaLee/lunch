@@ -963,3 +963,44 @@ test("운영진이 이용자를 하나씩 또는 여러 명 골라 삭제", asyn
   await page.screenshot({ path: ".local/screenshots/delete-users.png" });
   expect(errors).toEqual([]);
 });
+test("비밀번호 초기화 창에서 휴대폰 뒷자리 4자리로 초기화", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page, "테스트관리자");
+  await page.getByRole("button", { name: "운영 관리", exact: true }).click();
+  await page
+    .locator("tr")
+    .filter({ hasText: "AX학생" })
+    .getByRole("button", { name: "비밀번호 초기화", exact: true })
+    .click();
+  const box = page.getByLabel("새 초기 비밀번호 (숫자 4자리)");
+  await expect(box).toBeFocused();
+  await box.fill("0427");
+  await page.screenshot({ path: ".local/screenshots/reset-password.png" });
+  await page.getByRole("button", { name: "초기화", exact: true }).click();
+  await expect(page.getByText(/입력한 4자리로 초기화했어요/)).toBeVisible();
+  const other = await page.context().browser().newContext();
+  const member = await other.newPage();
+  await member.goto(app.base);
+  await member
+    .getByLabel("학번 / ID 또는 이름", { exact: true })
+    .fill("AX학생");
+  await member.getByLabel("비밀번호", { exact: true }).fill("0427");
+  await member.getByRole("button", { name: "로그인", exact: true }).click();
+  await expect(member.getByLabel("새 비밀번호", { exact: true })).toBeVisible();
+  // 자동 비밀번호를 고르면 예전처럼 계정 정보 창
+  await page
+    .locator("tr")
+    .filter({ hasText: "SF학생" })
+    .getByRole("button", { name: "비밀번호 초기화", exact: true })
+    .click();
+  await page.getByLabel("숫자 대신 자동으로 만든 비밀번호 쓰기").check();
+  await expect(box).toBeDisabled();
+  await page.getByRole("button", { name: "초기화", exact: true }).click();
+  await expect(page.locator(".code-output")).toContainText("초기 비밀번호:");
+  await other.close();
+  expect(errors).toEqual([]);
+});

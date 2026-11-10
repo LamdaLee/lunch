@@ -1222,19 +1222,44 @@ document.addEventListener("click", async (event) => {
         );
         break;
       }
-      case "reset-password":
-        confirmAction(
-          "비밀번호를 초기화할까요?",
-          "이 이용자의 모든 로그인이 종료되고 새 초기 비밀번호가 발급됩니다.",
-          async () => {
-            const account = await api("/admin/reset-password", "POST", { id });
+      case "reset-password": {
+        const user = state.admin.users.find((u) => u.id === id);
+        modal(
+          `<h2>${esc(user.name)} 님 비밀번호 초기화</h2><p>새 초기 비밀번호로 휴대폰 뒷자리 4자리를 입력해주세요. 이 이용자의 모든 로그인이 종료되고, 다음 로그인 때 비밀번호를 새로 정해야 합니다.</p><form id="reset-form"><label class="field">새 초기 비밀번호 (숫자 4자리)<input name="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="예: 휴대폰 뒷자리" required></label><label class="check"><input type="checkbox" name="random"> 숫자 대신 자동으로 만든 비밀번호 쓰기</label><div class="modal-actions"><button class="btn secondary" type="button" data-action="close-modal">돌아가기</button><button class="btn" type="submit">초기화</button></div></form>`,
+        );
+        const form = document.querySelector("#reset-form");
+        form.random.onchange = () => {
+          form.password.disabled = form.random.checked;
+          form.password.required = !form.random.checked;
+        };
+        form.password.focus();
+        form.onsubmit = async (event) => {
+          event.preventDefault();
+          const button = form.querySelector('[type="submit"]');
+          button.disabled = true;
+          try {
+            const account = await api(
+              "/admin/reset-password",
+              "POST",
+              form.random.checked
+                ? { id }
+                : { id, password: form.password.value.trim() },
+            );
             dialog.close();
             await loadAdmin(state.admin.day);
-            setTimeout(() => accountDetails(account), 0);
-          },
-          "초기화",
-        );
+            if (form.random.checked)
+              setTimeout(() => accountDetails(account), 0);
+            else
+              toast(
+                `${user.name} 님 비밀번호를 입력한 4자리로 초기화했어요. 학번/ID 또는 이름으로 로그인하면 됩니다.`,
+              );
+          } catch (e) {
+            toast(e.message);
+            button.disabled = false;
+          }
+        };
         break;
+      }
       case "restaurant-refresh":
         await renderRestaurant();
         break;

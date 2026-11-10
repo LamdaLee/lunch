@@ -1489,7 +1489,10 @@ export function createApp({
               if (!target) fail(404, "이용자를 찾을 수 없습니다.");
               if (target.id === user.id)
                 fail(400, "내 비밀번호는 상단 이름 버튼에서 변경해주세요.");
-              const password = token().slice(0, 12);
+              // 운영진이 정한 값(숫자 4자리, 예: 휴대폰 뒷자리)이 있으면 그 값으로, 없으면 자동
+              const password = body.password
+                ? initialPasswordOf(String(body.password).trim())
+                : token().slice(0, 12);
               await db
                 .prepare("UPDATE users SET password=?,must_change=1 WHERE id=?")
                 .run(passwordHash(password), target.id);
