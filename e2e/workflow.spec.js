@@ -1004,3 +1004,34 @@ test("비밀번호 초기화 창에서 휴대폰 뒷자리 4자리로 초기화"
   await other.close();
   expect(errors).toEqual([]);
 });
+test("점심 채팅: 어제 대화가 날짜 구분선과 함께 남아 있다", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const { id } = await app.db
+    .prepare("SELECT id FROM users WHERE login_id='sf001'")
+    .get();
+  await app.db
+    .prepare(
+      "INSERT INTO chat_messages(user_id,day,body,created_at) VALUES (?,?,?,?)",
+    )
+    .run(
+      id,
+      "2026-10-11",
+      "어제 칼국수 맛있었어요",
+      "2026-10-11T02:00:00.000Z",
+    );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const chat = page.locator("#chat-panel");
+  await expect(chat.getByRole("heading", { name: "점심 채팅" })).toBeVisible();
+  await expect(chat.locator(".chat-day").first()).toContainText("10월 11일");
+  await expect(chat).toContainText("어제 칼국수 맛있었어요");
+  await page.getByLabel("메시지 입력").fill("오늘은 국밥 어때요");
+  await page.getByRole("button", { name: "보내기" }).click();
+  await expect(chat.locator(".chat-day").last()).toHaveText("오늘");
+  await expect(chat).toContainText("오늘은 국밥 어때요");
+  await chat.screenshot({ path: ".local/screenshots/chat-history.png" });
+  expect(errors).toEqual([]);
+});

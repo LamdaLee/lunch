@@ -1634,6 +1634,18 @@ dialog > p {
   background: var(--paper);
   border-radius: 14px;
 }
+.chat-day {
+  justify-self: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.chat-day span {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
 .chat-empty {
   padding: 18px 10px;
   text-align: center;

@@ -97,17 +97,18 @@ function commentList(post) {
 function chatItems() {
   const messages = state.chat?.messages || [];
   if (!messages.length)
-    return `<li class="chat-empty">${state.chat?.open ? "첫 메시지를 남겨보세요. 오늘 나눈 대화만 보여요." : "아직 오늘 대화가 없어요."}</li>`;
+    return `<li class="chat-empty">${state.chat?.open ? "첫 메시지를 남겨보세요." : "아직 대화가 없어요."}</li>`;
+  // 날짜가 바뀌는 곳에 날짜 구분선을 넣습니다.
   return messages
     .map(
-      (m) =>
-        `<li class="chat-message ${m.user_id === state.user.id ? "mine" : ""}"><div class="chat-meta"><b>${esc(m.name)}</b><span class="muted">${esc(trackName(m.track))} · <time datetime="${esc(m.created_at)}">${new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(m.created_at))}</time></span>${m.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-chat" data-id="${m.id}" aria-label="메시지 삭제">삭제</button>` : ""}</div><p class="chat-body">${esc(m.body)}</p></li>`,
+      (m, i) =>
+        `${m.day && m.day !== messages[i - 1]?.day ? `<li class="chat-day" role="separator"><span>${m.day === state.chat.day ? "오늘" : esc(dateLabel(m.day))}</span></li>` : ""}<li class="chat-message ${m.user_id === state.user.id ? "mine" : ""}"><div class="chat-meta"><b>${esc(m.name)}</b><span class="muted">${esc(trackName(m.track))} · <time datetime="${esc(m.created_at)}">${new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(m.created_at))}</time></span>${m.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-chat" data-id="${m.id}" aria-label="메시지 삭제">삭제</button>` : ""}</div><p class="chat-body">${esc(m.body)}</p></li>`,
     )
     .join("");
 }
 function chatPanel() {
   const open = state.chat?.open;
-  return `<section class="panel chat-panel" id="chat-panel" aria-label="오늘의 채팅"><div class="section-head"><div><h2>오늘의 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 오늘 나눈 대화만 표시돼요.</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "채팅 중 · 13:00까지" : "09:00–13:00 이용"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "채팅은 오전 9시부터 오후 1시까지 열려요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
+  return `<section class="panel chat-panel" id="chat-panel" aria-label="점심 채팅"><div class="section-head"><div><h2>점심 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 지난 대화도 남아 있어요(최근 200개).</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "언제든 채팅" : "잠시 쉬는 중"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "잠시 후 다시 시도해주세요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
 }
 function updateChatList() {
   const list = document.querySelector("#chat-list");
@@ -131,7 +132,7 @@ async function loadChat(full = false) {
       messages: [
         ...state.chat.messages.filter((m) => !removed.has(m.id)),
         ...data.messages,
-      ],
+      ].slice(-300),
     };
   }
   if (state.tab !== "today") return;
