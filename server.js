@@ -1170,9 +1170,8 @@ export function createApp({
               .run(Number(postMatch[1]));
             return send(200, { ok: true });
           }
-          // 하나의 채팅방에 지난 대화도 계속 남습니다(최근 200개 표시). 보내기는 09:00–13:00 KST.
+          // 하나의 채팅방에 지난 대화도 계속 남습니다(최근 200개 표시). 시간 제한 없이 보낼 수 있습니다.
           // Clients poll with ?after=<last id>.
-          const chatOpen = clock.minute >= 540 && clock.minute < 780;
           if (path === "/api/chat" && req.method === "GET") {
             const after = url.searchParams.get("after");
             if (after !== null && !/^\d{1,12}$/.test(after))
@@ -1214,14 +1213,12 @@ export function createApp({
                   ).map((row) => row.id);
             return send(200, {
               day: clock.day,
-              open: chatOpen,
+              open: true,
               messages,
               deletedIds,
             });
           }
           if (path === "/api/chat" && req.method === "POST") {
-            if (!chatOpen)
-              fail(409, "채팅은 오전 9시부터 오후 1시까지 이용할 수 있어요.");
             const text = cleanText(body.body, 300, "메시지");
             const recent = await db
               .prepare(

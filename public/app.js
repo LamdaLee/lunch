@@ -108,7 +108,7 @@ function chatItems() {
 }
 function chatPanel() {
   const open = state.chat?.open;
-  return `<section class="panel chat-panel" id="chat-panel" aria-label="점심 채팅"><div class="section-head"><div><h2>점심 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 지난 대화도 남아 있어요(최근 200개).</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "채팅 중 · 13:00까지" : "09:00–13:00 이용"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "채팅은 오전 9시부터 오후 1시까지 열려요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
+  return `<section class="panel chat-panel" id="chat-panel" aria-label="점심 채팅"><div class="section-head"><div><h2>점심 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 지난 대화도 남아 있어요(최근 200개).</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "언제든 채팅" : "잠시 쉬는 중"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "잠시 후 다시 시도해주세요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
 }
 function updateChatList() {
   const list = document.querySelector("#chat-list");

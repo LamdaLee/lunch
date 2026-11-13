@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "./helpers.js";
 
-test("채팅은 09:00–13:00에만 보낼 수 있고 지난 대화도 남으며 삭제가 다른 화면에도 반영", async (t) => {
+test("채팅은 시간 제한 없이 보낼 수 있고 지난 대화도 남으며 삭제가 다른 화면에도 반영", async (t) => {
   const app = await fixture({ time: "2026-10-12T08:59:00+09:00" });
   t.after(() => app.close());
   const ax = await app.login("AX학생");
@@ -11,8 +11,7 @@ test("채팅은 09:00–13:00에만 보낼 수 있고 지난 대화도 남으며
   const send = (cookie, body) =>
     app.request("/chat", { method: "POST", cookie, body: { body } });
   assert.equal((await app.request("/chat")).status, 401);
-  assert.equal((await send(ax, "일찍 왔어요")).status, 409);
-  assert.equal((await app.request("/chat", { cookie: ax })).data.open, false);
+  assert.equal((await app.request("/chat", { cookie: ax })).data.open, true);
 
   app.setTime("2026-10-12T09:00:00+09:00");
   assert.equal((await send(ax, "  ")).status, 400);
@@ -110,11 +109,14 @@ test("채팅은 09:00–13:00에만 보낼 수 있고 지난 대화도 남으며
 
   app.setTime("2026-10-12T12:59:59+09:00");
   assert.equal((await send(sf, "곧 마감")).status, 201);
-  app.setTime("2026-10-12T13:00:00+09:00");
-  assert.equal((await send(sf, "늦었다")).status, 409);
-  const afternoon = (await app.request("/chat", { cookie: sf })).data;
-  assert.equal(afternoon.open, false);
-  assert.equal(afternoon.messages.length, 2);
+  app.setTime("2026-10-12T13:00:05+09:00");
+  assert.equal((await send(sf, "오후에도 돼요")).status, 201);
+  app.setTime("2026-10-12T23:30:00+09:00");
+  const night = await app.login("SF학생");
+  assert.equal((await send(night, "밤에도 돼요")).status, 201);
+  const evening = (await app.request("/chat", { cookie: night })).data;
+  assert.equal(evening.open, true);
+  assert.equal(evening.messages.length, 4);
 
   // 다음 날에도 어제 대화가 남아 있고, 새 메시지가 이어서 붙는다.
   app.setTime("2026-10-13T09:30:00+09:00");
@@ -126,6 +128,8 @@ test("채팅은 09:00–13:00에만 보낼 수 있고 지난 대화도 남으며
     [
       ["2026-10-12", "<b>좋아요</b>"],
       ["2026-10-12", "곧 마감"],
+      ["2026-10-12", "오후에도 돼요"],
+      ["2026-10-12", "밤에도 돼요"],
     ],
   );
   const today = await send(sf2, "오늘도 좋아요");
