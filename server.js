@@ -1170,52 +1170,64 @@ export function createApp({
               .run(Number(postMatch[1]));
             return send(200, { ok: true });
           }
-          // 하나의 채팅방에 지난 대화도 계속 남습니다(최근 200개 표시). 시간 제한 없이 보낼 수 있습니다.
-          // Clients poll with ?after=<last id>.
+          // 채팅방: 화면에는 오늘 대화만, 지난 대화는 '지난 대화' 화면에서 50개씩.
+          // 시간 제한 없이 보낼 수 있습니다. Clients poll with ?after=<last id>.
+          const chatColumns =
+            "SELECT c.id,c.user_id,c.body,c.created_at,c.day,u.name,u.track FROM chat_messages c JOIN users u ON u.id=c.user_id";
           if (path === "/api/chat" && req.method === "GET") {
             const after = url.searchParams.get("after");
             if (after !== null && !/^\d{1,12}$/.test(after))
               fail(400, "요청 형식을 확인해주세요.");
-            const columns =
-              "SELECT c.id,c.user_id,c.body,c.created_at,c.day,u.name,u.track FROM chat_messages c JOIN users u ON u.id=c.user_id";
             const messages =
               after === null
                 ? (
                     await db
                       .prepare(
-                        `${columns} WHERE c.deleted=0 ORDER BY c.id DESC LIMIT 200`,
+                        `${chatColumns} WHERE c.day=? AND c.deleted=0 ORDER BY c.id DESC LIMIT 200`,
                       )
-                      .all()
+                      .all(clock.day)
                   ).reverse()
                 : await db
                     .prepare(
-                      `${columns} WHERE c.deleted=0 AND c.id>? ORDER BY c.id LIMIT 200`,
+                      `${chatColumns} WHERE c.day=? AND c.deleted=0 AND c.id>? ORDER BY c.id LIMIT 200`,
                     )
-                    .all(Number(after));
-            // 화면에 있을 수 있는 범위(최근 300개)에서 지워진 메시지만 알려 줍니다.
-            const oldest =
-              after === null
-                ? null
-                : await db
-                    .prepare(
-                      "SELECT id FROM chat_messages ORDER BY id DESC LIMIT 1 OFFSET 299",
-                    )
-                    .get();
+                    .all(clock.day, Number(after));
             const deletedIds =
               after === null
                 ? []
                 : (
                     await db
                       .prepare(
-                        "SELECT id FROM chat_messages WHERE deleted=1 AND id<=? AND id>=?",
+                        "SELECT id FROM chat_messages WHERE day=? AND deleted=1 AND id<=?",
                       )
-                      .all(Number(after), oldest?.id ?? 0)
+                      .all(clock.day, Number(after))
                   ).map((row) => row.id);
+            const earlier = await db
+              .prepare(
+                "SELECT id FROM chat_messages WHERE day<? AND deleted=0 LIMIT 1",
+              )
+              .get(clock.day);
             return send(200, {
               day: clock.day,
               open: true,
               messages,
               deletedIds,
+              hasHistory: Boolean(earlier),
+            });
+          }
+          // 지난 대화(오늘 이전): 최신부터 50개씩, ?before=<가장 오래된 id>로 더 이전
+          if (path === "/api/chat/history" && req.method === "GET") {
+            const before = url.searchParams.get("before");
+            if (before !== null && !/^\d{1,12}$/.test(before))
+              fail(400, "요청 형식을 확인해주세요.");
+            const rows = await db
+              .prepare(
+                `${chatColumns} WHERE c.day<? AND c.deleted=0${before === null ? "" : " AND c.id<?"} ORDER BY c.id DESC LIMIT 51`,
+              )
+              .all(clock.day, ...(before === null ? [] : [Number(before)]));
+            return send(200, {
+              messages: rows.slice(0, 50).reverse(),
+              hasMore: rows.length > 50,
             });
           }
           if (path === "/api/chat" && req.method === "POST") {

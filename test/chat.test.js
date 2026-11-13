@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "./helpers.js";
 
-test("채팅은 시간 제한 없이 보낼 수 있고 지난 대화도 남으며 삭제가 다른 화면에도 반영", async (t) => {
+test("채팅은 시간 제한 없이 보낼 수 있고 오늘 대화만 보이며 지난 대화는 따로 보고 삭제가 다른 화면에도 반영", async (t) => {
   const app = await fixture({ time: "2026-10-12T08:59:00+09:00" });
   t.after(() => app.close());
   const ax = await app.login("AX학생");
@@ -118,13 +118,18 @@ test("채팅은 시간 제한 없이 보낼 수 있고 지난 대화도 남으�
   assert.equal(evening.open, true);
   assert.equal(evening.messages.length, 4);
 
-  // 다음 날에도 어제 대화가 남아 있고, 새 메시지가 이어서 붙는다.
+  // 다음 날 채팅방은 오늘 대화만 보이고, 어제 대화는 지난 대화에서 본다.
   app.setTime("2026-10-13T09:30:00+09:00");
   const sf2 = await app.login("SF학생");
   const nextDay = (await app.request("/chat", { cookie: sf2 })).data;
   assert.equal(nextDay.day, "2026-10-13");
+  assert.equal(nextDay.messages.length, 0);
+  assert.equal(nextDay.hasHistory, true);
+  const today = await send(sf2, "오늘도 좋아요");
+  const history = (await app.request("/chat/history", { cookie: sf2 })).data;
+  assert.equal(history.hasMore, false);
   assert.deepEqual(
-    nextDay.messages.map((m) => [m.day, m.body]),
+    history.messages.map((m) => [m.day, m.body]),
     [
       ["2026-10-12", "<b>좋아요</b>"],
       ["2026-10-12", "곧 마감"],
@@ -132,33 +137,18 @@ test("채팅은 시간 제한 없이 보낼 수 있고 지난 대화도 남으�
       ["2026-10-12", "밤에도 돼요"],
     ],
   );
-  const today = await send(sf2, "오늘도 좋아요");
-  const polled = (
-    await app.request(`/chat?after=${nextDay.messages.at(-1).id}`, {
-      cookie: sf2,
-    })
-  ).data;
-  assert.deepEqual(
-    polled.messages.map((m) => [m.id, m.day]),
-    [[today.data.id, "2026-10-13"]],
+  assert.equal(
+    history.messages.some((m) => m.id === today.data.id),
+    false,
   );
-  // 어제 메시지를 지워도 다른 화면에 반영된다.
-  const yesterday = nextDay.messages[0].id;
-  const removed = await app.request(`/chat/${yesterday}`, {
-    method: "DELETE",
-    cookie: await app.login("테스트관리자"),
-    body: {},
-  });
-  assert.equal(removed.status, 200);
-  assert.deepEqual(
-    (
-      await app.request(`/chat?after=${today.data.id}`, { cookie: sf2 })
-    ).data.deletedIds.includes(yesterday),
-    true,
+  assert.equal(
+    (await app.request("/chat/history?before=x", { cookie: sf2 })).status,
+    400,
   );
+  assert.equal((await app.request("/chat/history")).status, 401);
 });
 
-test("채팅은 최근 200개만 처음에 보여 준다", async (t) => {
+test("지난 대화는 최신부터 50개씩, 이전 대화를 더 불러온다", async (t) => {
   const app = await fixture({ time: "2026-10-12T10:00:00+09:00" });
   t.after(() => app.close());
   const ax = await app.login("AX학생");
@@ -168,10 +158,30 @@ test("채팅은 최근 200개만 처음에 보여 준다", async (t) => {
   const add = app.db.prepare(
     "INSERT INTO chat_messages(user_id,day,body,created_at) VALUES (?,?,?,?)",
   );
-  for (let i = 1; i <= 205; i++)
+  for (let i = 1; i <= 120; i++)
     await add.run(id, "2026-10-11", `m${i}`, "2026-10-11T01:00:00.000Z");
-  const list = (await app.request("/chat", { cookie: ax })).data.messages;
-  assert.equal(list.length, 200);
-  assert.equal(list[0].body, "m6");
-  assert.equal(list.at(-1).body, "m205");
+  await add.run(id, "2026-10-12", "오늘", "2026-10-12T01:00:00.000Z");
+  const get = async (q = "") =>
+    (await app.request(`/chat/history${q}`, { cookie: ax })).data;
+  const first = await get();
+  assert.equal(first.messages.length, 50);
+  assert.equal(first.messages[0].body, "m71");
+  assert.equal(first.messages.at(-1).body, "m120");
+  assert.equal(first.hasMore, true);
+  const second = await get(`?before=${first.messages[0].id}`);
+  assert.equal(second.messages[0].body, "m21");
+  assert.equal(second.hasMore, true);
+  const third = await get(`?before=${second.messages[0].id}`);
+  assert.deepEqual(
+    third.messages.map((m) => m.body),
+    Array.from({ length: 20 }, (_, i) => `m${i + 1}`),
+  );
+  assert.equal(third.hasMore, false);
+  // 채팅방에는 오늘 대화만
+  assert.deepEqual(
+    (await app.request("/chat", { cookie: ax })).data.messages.map(
+      (m) => m.body,
+    ),
+    ["오늘"],
+  );
 });
