@@ -94,21 +94,54 @@ function commentList(post) {
   const comments = post.comments || [];
   return `<section class="comments" aria-label="댓글 ${comments.length}개"><h4>댓글 <span class="muted">${comments.length}</span></h4>${comments.length ? `<ul class="comment-list">${comments.map((c) => `<li class="comment"><div class="comment-top"><b>${esc(c.name)}</b><span class="muted">${esc(trackName(c.track))} · <time datetime="${esc(c.created_at)}">${shortTime(c.created_at)}</time></span>${c.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-comment" data-id="${c.id}" aria-label="댓글 삭제">삭제</button>` : ""}</div><p class="comment-body">${esc(c.body)}</p></li>`).join("")}</ul>` : ""}<form class="comment-form" data-post="${post.id}"><label class="sr-only" for="comment-${post.id}">댓글 입력</label><input id="comment-${post.id}" name="body" required maxlength="500" placeholder="댓글을 남겨주세요"><button class="btn small" type="submit">등록</button></form></section>`;
 }
-function chatItems() {
-  const messages = state.chat?.messages || [];
+// history: 지난 대화 화면(날짜 구분선, 삭제 버튼 없음)
+function chatItems(messages = state.chat?.messages || [], history = false) {
   if (!messages.length)
-    return `<li class="chat-empty">${state.chat?.open ? "첫 메시지를 남겨보세요." : "아직 대화가 없어요."}</li>`;
-  // 날짜가 바뀌는 곳에 날짜 구분선을 넣습니다.
+    return `<li class="chat-empty">${history ? "지난 대화가 없어요." : "오늘 첫 메시지를 남겨보세요."}</li>`;
+  const time = (m) =>
+    new Intl.DateTimeFormat("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Seoul",
+    }).format(new Date(m.created_at));
   return messages
     .map(
       (m, i) =>
-        `${m.day && m.day !== messages[i - 1]?.day ? `<li class="chat-day" role="separator"><span>${m.day === state.chat.day ? "오늘" : esc(dateLabel(m.day))}</span></li>` : ""}<li class="chat-message ${m.user_id === state.user.id ? "mine" : ""}"><div class="chat-meta"><b>${esc(m.name)}</b><span class="muted">${esc(trackName(m.track))} · <time datetime="${esc(m.created_at)}">${new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul" }).format(new Date(m.created_at))}</time></span>${m.user_id === state.user.id || state.user.role === "admin" ? `<button class="btn ghost small" data-action="delete-chat" data-id="${m.id}" aria-label="메시지 삭제">삭제</button>` : ""}</div><p class="chat-body">${esc(m.body)}</p></li>`,
+        `${history && m.day !== messages[i - 1]?.day ? `<li class="chat-day" role="separator"><span>${esc(dateLabel(m.day))}</span></li>` : ""}<li class="chat-message ${m.user_id === state.user.id ? "mine" : ""}"><div class="chat-meta"><b>${esc(m.name)}</b><span class="muted">${esc(trackName(m.track))} · <time datetime="${esc(m.created_at)}">${time(m)}</time></span>${!history && (m.user_id === state.user.id || state.user.role === "admin") ? `<button class="btn ghost small" data-action="delete-chat" data-id="${m.id}" aria-label="메시지 삭제">삭제</button>` : ""}</div><p class="chat-body">${esc(m.body)}</p></li>`,
     )
     .join("");
 }
+async function openChatHistory() {
+  const data = await api("/chat/history");
+  let messages = data.messages,
+    hasMore = data.hasMore;
+  modal(
+    `<h2>지난 대화</h2><p>어제까지 나눈 대화예요. 위로 올리면 이전 대화를 볼 수 있어요.</p><ul class="chat-list chat-history" id="history-list">${chatItems(messages, true)}</ul><div class="modal-actions">${hasMore ? '<button class="btn secondary small" id="history-more">이전 대화 더 보기</button>' : ""}<button class="btn small" data-action="close-modal">닫기</button></div>`,
+  );
+  const list = document.querySelector("#history-list");
+  list.scrollTop = list.scrollHeight;
+  const more = document.querySelector("#history-more");
+  if (!more) return;
+  more.onclick = async () => {
+    more.disabled = true;
+    try {
+      const older = await api(`/chat/history?before=${messages[0].id}`);
+      const height = list.scrollHeight;
+      messages = [...older.messages, ...messages];
+      hasMore = older.hasMore;
+      list.innerHTML = chatItems(messages, true);
+      list.scrollTop = list.scrollHeight - height; // 보던 자리 유지
+      if (!hasMore) more.remove();
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      more.disabled = false;
+    }
+  };
+}
 function chatPanel() {
   const open = state.chat?.open;
-  return `<section class="panel chat-panel" id="chat-panel" aria-label="점심 채팅"><div class="section-head"><div><h2>점심 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 지난 대화도 남아 있어요(최근 200개).</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "언제든 채팅" : "잠시 쉬는 중"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "잠시 후 다시 시도해주세요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
+  return `<section class="panel chat-panel" id="chat-panel" aria-label="점심 채팅"><div class="section-head"><div><h2>점심 채팅</h2><p class="footnote">모두가 함께 보는 방이에요. 오늘 대화만 보여요.${state.chat?.hasHistory ? ' <button class="link-button" data-action="chat-history">지난 대화 보기 →</button>' : ""}</p></div><span class="pill ${open ? "green" : "gray"}"><i class="dot"></i>${open ? "언제든 채팅" : "잠시 쉬는 중"}</span></div><ul class="chat-list" id="chat-list" aria-live="polite">${chatItems()}</ul><form id="chat-form" class="chat-form"><label class="sr-only" for="chat-input">메시지 입력</label><input id="chat-input" name="body" required maxlength="300" autocomplete="off" value="${esc(state.chatDraft)}" placeholder="${open ? "메시지를 입력하세요" : "잠시 후 다시 시도해주세요"}" ${open ? "" : "disabled"}><button class="btn small" type="submit" ${open ? "" : "disabled"}>보내기</button></form></section>`;
 }
 function updateChatList() {
   const list = document.querySelector("#chat-list");
@@ -123,7 +156,12 @@ async function loadChat(full = false) {
   const data = await api(full || !state.chat ? "/chat" : `/chat?after=${last}`);
   const wasOpen = state.chat?.open;
   if (full || !state.chat || state.chat.day !== data.day)
-    state.chat = { day: data.day, open: data.open, messages: data.messages };
+    state.chat = {
+      day: data.day,
+      open: data.open,
+      hasHistory: data.hasHistory,
+      messages: data.messages,
+    };
   else {
     const removed = new Set(data.deletedIds);
     state.chat = {
@@ -1095,6 +1133,9 @@ document.addEventListener("click", async (event) => {
         } finally {
           target.disabled = false;
         }
+        break;
+      case "chat-history":
+        await openChatHistory();
         break;
       case "delete-chat":
         confirmAction(

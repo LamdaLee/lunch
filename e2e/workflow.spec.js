@@ -1004,7 +1004,7 @@ test("비밀번호 초기화 창에서 휴대폰 뒷자리 4자리로 초기화"
   await other.close();
   expect(errors).toEqual([]);
 });
-test("점심 채팅: 어제 대화가 날짜 구분선과 함께 남아 있다", async ({
+test("점심 채팅: 오늘 대화만 보이고 지난 대화는 따로 위로 올려 본다", async ({
   page,
 }) => {
   const errors = [];
@@ -1012,26 +1012,38 @@ test("점심 채팅: 어제 대화가 날짜 구분선과 함께 남아 있다",
   const { id } = await app.db
     .prepare("SELECT id FROM users WHERE login_id='sf001'")
     .get();
-  await app.db
-    .prepare(
-      "INSERT INTO chat_messages(user_id,day,body,created_at) VALUES (?,?,?,?)",
-    )
-    .run(
-      id,
-      "2026-10-11",
-      "어제 칼국수 맛있었어요",
-      "2026-10-11T02:00:00.000Z",
-    );
+  const add = app.db.prepare(
+    "INSERT INTO chat_messages(user_id,day,body,created_at) VALUES (?,?,?,?)",
+  );
+  for (let i = 1; i <= 60; i++)
+    await add.run(id, "2026-10-10", `그제 ${i}`, "2026-10-10T02:00:00.000Z");
+  await add.run(
+    id,
+    "2026-10-11",
+    "어제 칼국수 맛있었어요",
+    "2026-10-11T02:00:00.000Z",
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
   const chat = page.locator("#chat-panel");
   await expect(chat.getByRole("heading", { name: "점심 채팅" })).toBeVisible();
-  await expect(chat.locator(".chat-day").first()).toContainText("10월 11일");
-  await expect(chat).toContainText("어제 칼국수 맛있었어요");
+  await expect(chat).not.toContainText("어제 칼국수");
   await page.getByLabel("메시지 입력").fill("오늘은 국밥 어때요");
   await page.getByRole("button", { name: "보내기" }).click();
-  await expect(chat.locator(".chat-day").last()).toHaveText("오늘");
   await expect(chat).toContainText("오늘은 국밥 어때요");
-  await chat.screenshot({ path: ".local/screenshots/chat-history.png" });
+
+  await chat.getByRole("button", { name: "지난 대화 보기 →" }).click();
+  const history = page.locator("#history-list");
+  await expect(history).toContainText("어제 칼국수 맛있었어요");
+  await expect(history).not.toContainText("오늘은 국밥");
+  await expect(history.locator(".chat-day").last()).toContainText("10월 11일");
+  await expect(history).not.toContainText("그제 11");
+  await page.getByRole("button", { name: "이전 대화 더 보기" }).click();
+  await expect(history).toContainText("그제 1");
+  await expect(
+    page.getByRole("button", { name: "이전 대화 더 보기" }),
+  ).toBeHidden();
+  await page.screenshot({ path: ".local/screenshots/chat-history.png" });
+  await page.getByRole("button", { name: "닫기", exact: true }).click();
   expect(errors).toEqual([]);
 });
